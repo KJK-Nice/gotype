@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/wish/logging"
 	"github.com/muesli/termenv"
 
+	"github.com/kjkusap/monkeytype-clone/internal/multi"
 	"github.com/kjkusap/monkeytype-clone/internal/ui"
 )
 
@@ -37,14 +38,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	hub := multi.NewHub()
+
 	s, err := wish.NewServer(
 		wish.WithAddress(addr),
 		hostKey,
 		wish.WithPasswordAuth(func(ssh.Context, string) bool { return true }),
-		// Last middleware runs first: logging → activeterm → bubbletea.
-		// Middleware() defaults to termenv.Ascii (no color). Force TrueColor.
 		wish.WithMiddleware(
-			bubbletea.MiddlewareWithColorProfile(teaHandler, termenv.TrueColor),
+			bubbletea.MiddlewareWithColorProfile(makeTeaHandler(hub), termenv.TrueColor),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -75,18 +76,26 @@ func main() {
 	}
 }
 
-func teaHandler(_ ssh.Session) (tea.Model, []tea.ProgramOption) {
-	// Package-level lipgloss styles use the default renderer. Over SSH the
-	// server env often has no COLORTERM, so force TrueColor for this session.
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	return ui.New(), []tea.ProgramOption{tea.WithAltScreen()}
+func makeTeaHandler(hub *multi.Hub) func(ssh.Session) (tea.Model, []tea.ProgramOption) {
+	return func(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
+		lipgloss.SetColorProfile(termenv.TrueColor)
+		name := sess.User()
+		if name == "" {
+			name = "player"
+		}
+		m := ui.NewWithOptions(ui.Options{
+			Hub:        hub,
+			PlayerName: name,
+			PlayerID:   multi.NewPlayerID(),
+		})
+		return m, []tea.ProgramOption{tea.WithAltScreen()}
+	}
 }
 
 func hostKeyOption() (ssh.Option, error) {
 	if pem := os.Getenv("SSH_HOST_KEY"); pem != "" {
 		return wish.WithHostKeyPEM([]byte(pem)), nil
 	}
-	// Local/dev: auto-generate under a temp subdir (not durable across restarts).
 	dir := filepath.Join(os.TempDir(), "mtype-ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err

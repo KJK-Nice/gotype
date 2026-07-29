@@ -43,6 +43,20 @@ mtype
 
 Metrics follow Monkeytype conventions: WPM from correct chars÷5÷minutes, accuracy from correct÷typed.
 
+## Multiplayer (SSH)
+
+Over `mtype-ssh`, press **m** on the menu:
+
+1. **c** create room → share 4-letter code
+2. Friend **j** join → type code
+3. Host **s** / enter to start (need 2–4 players)
+4. 3s countdown → same prompt → live WPM bars
+5. Podium when time ends (or all finish)
+
+SSH username = display name (`ssh alice@host -p PORT`).
+
+Solo `go run ./cmd/mtype` has no multiplayer (no shared hub).
+
 ## Play over SSH
 
 `mtype-ssh` serves the same TUI over SSH (Charm Wish). Auth is open — any user/password.
@@ -83,5 +97,7 @@ railway variables set PORT=2222
 Connect (Railway assigns a high public port — not 22):
 
 ```bash
-ssh play@<railway-tcp-domain> -p <assigned-port>
+ssh play@sakura.proxy.rlwy.net -p 58372
 ```
+
+(Replace host/port if your Railway TCP proxy changed.)

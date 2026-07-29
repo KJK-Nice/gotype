@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kjkusap/monkeytype-clone/internal/game"
+	"github.com/kjkusap/monkeytype-clone/internal/multi"
 )
 
 type phase int
@@ -17,9 +18,20 @@ const (
 	phaseConfig phase = iota
 	phaseTyping
 	phaseResult
+	phaseMultiMenu
+	phaseJoin
+	phaseLobby
+	phasePodium
 )
 
 type tickMsg time.Time
+
+// Options configures optional multiplayer / SSH identity.
+type Options struct {
+	Hub        *multi.Hub
+	PlayerName string
+	PlayerID   string
+}
 
 // Model is the Bubble Tea root model.
 type Model struct {
@@ -35,6 +47,15 @@ type Model struct {
 	caretX     float64
 	caretReady bool
 	trail      map[int]int // index → remaining trail life
+
+	hub         *multi.Hub
+	playerID    string
+	playerName  string
+	roomCode    string
+	joinInput   string
+	statusErr   string
+	multiView   multi.View
+	raceStarted bool
 }
 
 type focusField int
@@ -44,16 +65,32 @@ const (
 	focusValue
 )
 
-// New returns the initial menu model.
+// New returns the initial menu model (solo).
 func New() Model {
+	return NewWithOptions(Options{})
+}
+
+// NewWithOptions returns a model with optional multiplayer hub.
+func NewWithOptions(opts Options) Model {
+	id := opts.PlayerID
+	if id == "" {
+		id = multi.NewPlayerID()
+	}
+	name := opts.PlayerName
+	if name == "" {
+		name = "player"
+	}
 	return Model{
-		phase:   phaseConfig,
-		cfg:     game.DefaultConfig,
-		focus:   focusMode,
-		width:   80,
-		height:  24,
-		now:     time.Now(),
-		caretOn: true,
+		phase:      phaseConfig,
+		cfg:        game.DefaultConfig,
+		focus:      focusMode,
+		width:      80,
+		height:     24,
+		now:        time.Now(),
+		caretOn:    true,
+		hub:        opts.Hub,
+		playerID:   id,
+		playerName: name,
 	}
 }
 
@@ -70,12 +107,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.now = time.Time(msg)
+		if m.multiEnabled() && m.roomCode != "" {
+			m.syncMulti()
+		}
 		if m.phase == phaseTyping && m.sess != nil {
 			if m.sess.Tick(m.now) {
-				m.phase = phaseResult
+				if m.roomCode != "" {
+					m.syncMulti()
+				} else {
+					m.phase = phaseResult
+				}
 			} else {
 				m.stepCaret()
 			}
+		} else if m.phase == phaseLobby {
+			// keep polling countdown via syncMulti above
 		}
 		return m, tickCmd()
 
@@ -108,6 +154,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateTyping(msg)
 	case phaseResult:
 		return m.updateResult(msg)
+	case phaseMultiMenu:
+		return m.updateMultiMenu(msg)
+	case phaseJoin:
+		return m.updateJoin(msg)
+	case phaseLobby:
+		return m.updateLobby(msg)
+	case phasePodium:
+		return m.updatePodium(msg)
 	}
 	return m, nil
 }
@@ -140,6 +194,11 @@ func (m Model) updateConfig(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = focusValue
 	case "enter", " ":
 		m.startTest()
+	case "m":
+		if m.multiEnabled() {
+			m.statusErr = ""
+			m.phase = phaseMultiMenu
+		}
 	}
 	return m, nil
 }
@@ -197,13 +256,23 @@ func (m Model) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "esc":
+		if m.roomCode != "" {
+			m.leaveMulti()
+			m.phase = phaseMultiMenu
+			m.sess = nil
+			return m, nil
+		}
 		m.phase = phaseConfig
 		m.sess = nil
 		return m, nil
 	case "tab":
+		if m.roomCode != "" {
+			return m, nil // no solo restart mid-race
+		}
 		m.startTest()
 		return m, nil
 	case "ctrl+c":
+		m.leaveMulti()
 		return m, tea.Quit
 	}
 
@@ -213,13 +282,21 @@ func (m Model) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeySpace:
 		m.sess.HandleSpace(m.now)
 		if m.sess.Finished {
-			m.phase = phaseResult
+			if m.roomCode != "" {
+				m.syncMulti()
+			} else {
+				m.phase = phaseResult
+			}
 		}
 	case tea.KeyRunes:
 		for _, r := range msg.Runes {
 			m.sess.HandleRune(r, m.now)
 			if m.sess.Finished {
-				m.phase = phaseResult
+				if m.roomCode != "" {
+					m.syncMulti()
+				} else {
+					m.phase = phaseResult
+				}
 				break
 			}
 		}
@@ -229,7 +306,11 @@ func (m Model) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(s) == 1 && s != " " {
 			m.sess.HandleRune(rune(s[0]), m.now)
 			if m.sess.Finished {
-				m.phase = phaseResult
+				if m.roomCode != "" {
+					m.syncMulti()
+				} else {
+					m.phase = phaseResult
+				}
 			}
 		}
 	}
@@ -258,6 +339,14 @@ func (m Model) View() string {
 		body = m.viewTyping()
 	case phaseResult:
 		body = m.viewResult()
+	case phaseMultiMenu:
+		body = m.viewMultiMenu()
+	case phaseJoin:
+		body = m.viewJoin()
+	case phaseLobby:
+		body = m.viewLobby()
+	case phasePodium:
+		body = m.viewPodium()
 	}
 
 	content := styleBox.Render(body)
@@ -321,7 +410,11 @@ func (m Model) viewConfig() string {
 	}
 
 	b.WriteString("\n\n")
-	b.WriteString(styleSub.Render("↑↓ change  tab focus  enter start  t/w mode  q quit"))
+	if m.multiEnabled() {
+		b.WriteString(styleSub.Render("↑↓ change  tab focus  enter start  m multi  t/w mode  q quit"))
+	} else {
+		b.WriteString(styleSub.Render("↑↓ change  tab focus  enter start  t/w mode  q quit"))
+	}
 	return b.String()
 }
 
@@ -333,6 +426,9 @@ func (m Model) viewTyping() string {
 	var b strings.Builder
 
 	hud := styleMain.Render(m.sess.ProgressLabel(m.now))
+	if m.roomCode != "" && m.multiView.Phase == multi.PhaseRacing {
+		hud = styleMain.Render(game.FormatSeconds(m.multiView.RaceRemaining))
+	}
 	if m.sess.Started {
 		hud += "  " + styleStatValue.Render(fmt.Sprintf("%.0f", snap.WPM))
 		hud += styleSub.Render(" wpm")
@@ -344,8 +440,14 @@ func (m Model) viewTyping() string {
 	b.WriteString(hud)
 	b.WriteString("\n\n")
 	b.WriteString(m.renderPrompt())
-	b.WriteString("\n\n")
-	b.WriteString(styleSub.Render("tab restart  esc menu"))
+	if m.roomCode != "" {
+		b.WriteString(m.viewRaceOpponents())
+		b.WriteString("\n")
+		b.WriteString(styleSub.Render("esc leave race"))
+	} else {
+		b.WriteString("\n\n")
+		b.WriteString(styleSub.Render("tab restart  esc menu"))
+	}
 	return b.String()
 }
 

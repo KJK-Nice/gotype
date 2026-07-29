@@ -72,12 +72,21 @@ type Session struct {
 }
 
 func NewSession(cfg Config) *Session {
+	return NewSessionSeeded(cfg, 0)
+}
+
+// NewSessionSeeded builds a session. If seed != 0, the word list is deterministic.
+func NewSessionSeeded(cfg Config, seed uint64) *Session {
 	n := cfg.WordCount
 	if cfg.Mode == ModeTime {
-		// Extra buffer so time mode rarely runs out of words.
 		n = 200
 	}
-	w := words.Generate(words.English, n)
+	var w []string
+	if seed != 0 {
+		w = words.GenerateWithSeed(words.English, n, seed)
+	} else {
+		w = words.Generate(words.English, n)
+	}
 	s := &Session{
 		Config: cfg,
 		Words:  w,
@@ -85,6 +94,18 @@ func NewSession(cfg Config) *Session {
 	}
 	s.rebuildChars()
 	return s
+}
+
+// ProgressChars is typed-through length used for race bars.
+func (s *Session) ProgressChars() int {
+	n := 0
+	for i := 0; i < s.WordIdx && i < len(s.Words); i++ {
+		n += len([]rune(s.Words[i])) + 1
+	}
+	if s.WordIdx < len(s.Typed) {
+		n += len(s.Typed[s.WordIdx])
+	}
+	return n
 }
 
 func (s *Session) rebuildChars() {
@@ -301,6 +322,19 @@ func (s *Session) Sample(now time.Time) {
 	}
 	s.lastSampleAt = now
 	s.History = append(s.History, pt)
+}
+
+// ForceFinish ends the session at now (multiplayer race clock).
+func (s *Session) ForceFinish(now time.Time) {
+	if s.Finished {
+		return
+	}
+	if !s.Started {
+		s.Started = true
+		s.StartedAt = now
+		s.Stats.Start(now)
+	}
+	s.finish(now)
 }
 
 func (s *Session) finish(now time.Time) {
