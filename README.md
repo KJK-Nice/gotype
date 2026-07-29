@@ -53,7 +53,8 @@ Over `mtype-ssh`, press **m** on the menu:
 4. 3s countdown → same prompt → live WPM bars
 5. Podium when time ends (or all finish)
 6. **enter / tab / r** rematch — same room code + players; host **s** to start again
-7. **esc** leave room
+7. New friends: **j** + same code during **podium or lobby** (between rounds)
+8. **esc** leave room
 
 SSH username = display name (`ssh alice@host -p PORT`).
 

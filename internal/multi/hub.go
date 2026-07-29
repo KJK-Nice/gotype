@@ -165,7 +165,8 @@ func (h *Hub) Join(playerID, name, code string) (View, error) {
 	if !ok {
 		return View{}, ErrRoomNotFound
 	}
-	if room.Phase != PhaseLobby {
+	// Join between rounds: lobby, or podium before rematch.
+	if room.Phase != PhaseLobby && room.Phase != PhaseDone {
 		return View{}, ErrBadPhase
 	}
 	if len(room.Players) >= MaxPlayers {

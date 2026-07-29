@@ -54,8 +54,14 @@ func (m Model) updateJoin(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.roomCode = v.Code
 		m.statusErr = ""
-		m.phase = phaseLobby
 		m.multiView = v
+		m.raceStarted = false
+		m.sess = nil
+		if v.Phase == multi.PhaseDone {
+			m.phase = phasePodium
+		} else {
+			m.phase = phaseLobby
+		}
 	case "backspace":
 		if len(m.joinInput) > 0 {
 			m.joinInput = m.joinInput[:len(m.joinInput)-1]
@@ -311,11 +317,11 @@ func (m Model) viewLobby() string {
 		b.WriteString("\n\n")
 	}
 	if v.YouAreHost && v.Phase == multi.PhaseLobby {
-		b.WriteString(styleSub.Render("s/enter start  esc leave"))
+		b.WriteString(styleSub.Render("s/enter start  share code for friends  esc leave"))
 	} else if v.Phase == multi.PhaseCountdown {
 		b.WriteString(styleSub.Render("get ready…"))
 	} else {
-		b.WriteString(styleSub.Render("waiting for host  esc leave"))
+		b.WriteString(styleSub.Render("waiting for host  share code  esc leave"))
 	}
 	return b.String()
 }
@@ -388,6 +394,10 @@ func (m Model) viewPodium() string {
 		}
 	}
 	b.WriteString("\n\n")
+	b.WriteString(styleSub.Render("share "))
+	b.WriteString(styleMain.Render(v.Code))
+	b.WriteString(styleSub.Render(" — friends join anytime"))
+	b.WriteString("\n")
 	b.WriteString(styleSub.Render("enter/tab/r again  esc leave  q quit"))
 	return b.String()
 }

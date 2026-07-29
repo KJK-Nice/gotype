@@ -75,6 +75,44 @@ func TestCreateJoinStartRace(t *testing.T) {
 	if again.Players[0].Prog.WPM != 0 {
 		t.Fatal("expected cleared progress")
 	}
+
+	// New company joins after rematch (lobby).
+	c := NewPlayerID()
+	vc, err := h.Join(c, "carol", va.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vc.Players) != 3 {
+		t.Fatalf("players after carol=%d", len(vc.Players))
+	}
+}
+
+func TestJoinDuringPodium(t *testing.T) {
+	h := NewHub()
+	cfg := game.Config{Mode: game.ModeTime, Duration: 15 * time.Second, WordCount: 25}
+	a, b := NewPlayerID(), NewPlayerID()
+	va, _ := h.Create(a, "alice", cfg)
+	_, _ = h.Join(b, "bob", va.Code)
+	now := time.Now()
+	_, _ = h.Start(a, now)
+	_ = h.Snapshot(a, now.Add(4*time.Second))
+	h.Report(a, Progress{WPM: 50, Correct: 20, Done: true}, now.Add(20*time.Second))
+	h.Report(b, Progress{WPM: 40, Correct: 15, Done: true}, now.Add(20*time.Second))
+	done := h.Snapshot(a, now.Add(20*time.Second))
+	if done.Phase != PhaseDone {
+		t.Fatalf("phase=%v", done.Phase)
+	}
+	c := NewPlayerID()
+	vc, err := h.Join(c, "carol", va.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vc.Phase != PhaseDone {
+		t.Fatalf("join during podium phase=%v", vc.Phase)
+	}
+	if len(vc.Players) != 3 {
+		t.Fatalf("players=%d", len(vc.Players))
+	}
 }
 
 func TestGenerateSeedMatch(t *testing.T) {
