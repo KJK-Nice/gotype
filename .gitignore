@@ -1,0 +1,13 @@
+# Binaries
+/mtype
+/bin/
+*.exe
+
+# Go
+/vendor/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
