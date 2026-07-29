@@ -12,12 +12,14 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
 	"github.com/charmbracelet/wish/activeterm"
 	"github.com/charmbracelet/wish/bubbletea"
 	"github.com/charmbracelet/wish/logging"
+	"github.com/muesli/termenv"
 
 	"github.com/kjkusap/monkeytype-clone/internal/ui"
 )
@@ -40,8 +42,9 @@ func main() {
 		hostKey,
 		wish.WithPasswordAuth(func(ssh.Context, string) bool { return true }),
 		// Last middleware runs first: logging → activeterm → bubbletea.
+		// Middleware() defaults to termenv.Ascii (no color). Force TrueColor.
 		wish.WithMiddleware(
-			bubbletea.Middleware(teaHandler),
+			bubbletea.MiddlewareWithColorProfile(teaHandler, termenv.TrueColor),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -72,7 +75,10 @@ func main() {
 	}
 }
 
-func teaHandler(ssh.Session) (tea.Model, []tea.ProgramOption) {
+func teaHandler(_ ssh.Session) (tea.Model, []tea.ProgramOption) {
+	// Package-level lipgloss styles use the default renderer. Over SSH the
+	// server env often has no COLORTERM, so force TrueColor for this session.
+	lipgloss.SetColorProfile(termenv.TrueColor)
 	return ui.New(), []tea.ProgramOption{tea.WithAltScreen()}
 }
 
