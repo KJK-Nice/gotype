@@ -118,7 +118,8 @@ func (c *Calculator) Unrecord(kind StrokeKind) bool {
 	return false
 }
 
-// Snapshot computes Monkeytype-style cumulative metrics (HUD / final stats).
+// Snapshot computes cumulative metrics for the HUD and final results.
+// WPM = correct chars ÷ 5 ÷ minutes; accuracy = correct ÷ typed.
 func (c *Calculator) Snapshot(now time.Time) Snapshot {
 	elapsed := c.elapsed(now)
 	minutes := elapsed.Seconds() / 60.0
@@ -151,7 +152,7 @@ func (c *Calculator) Snapshot(now time.Time) Snapshot {
 	}
 }
 
-// BurstWindow is the rolling window used for chart WPM (Monkeytype-style).
+// BurstWindow is the rolling window used for chart WPM samples.
 const BurstWindow = time.Second
 
 // BurstPoint computes instantaneous WPM/raw over a recent window.

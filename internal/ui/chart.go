@@ -16,7 +16,7 @@ const (
 	markError = '●'
 )
 
-// RenderChart draws a Monkeytype-style WPM/raw line chart with error dots.
+// RenderChart draws a WPM/raw line chart with error dots.
 // height is plot rows (excluding axis labels).
 func RenderChart(points []stats.Point, errors []time.Duration, width, height int) string {
 	if len(points) == 0 || width < 12 || height < 3 {

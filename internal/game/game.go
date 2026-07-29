@@ -216,7 +216,7 @@ func (s *Session) HandleSpace(now time.Time) {
 	word := []rune(s.Words[s.WordIdx])
 	typed := s.Typed[s.WordIdx]
 
-	// Missed letters count as incorrect (Monkeytype-style).
+	// Missed letters count as incorrect.
 	if len(typed) < len(word) {
 		missed := len(word) - len(typed)
 		s.Stats.Missed += missed

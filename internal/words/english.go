@@ -1,6 +1,6 @@
 package words
 
-// English is a common-word list inspired by Monkeytype's english wordset.
+// English is a common-word list for typing prompts.
 var English = []string{
 	"the", "be", "of", "and", "a", "to", "in", "he", "have", "it",
 	"that", "for", "they", "i", "with", "as", "not", "on", "she", "at",
