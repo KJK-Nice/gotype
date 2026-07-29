@@ -34,7 +34,7 @@ func main() {
 
 	hostKey, err := hostKeyOption()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mtype-ssh: host key: %v\n", err)
+		fmt.Fprintf(os.Stderr, "gotype-ssh: host key: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -51,7 +51,7 @@ func main() {
 		),
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mtype-ssh: %v\n", err)
+		fmt.Fprintf(os.Stderr, "gotype-ssh: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -96,7 +96,7 @@ func hostKeyOption() (ssh.Option, error) {
 	if pem := os.Getenv("SSH_HOST_KEY"); pem != "" {
 		return wish.WithHostKeyPEM([]byte(pem)), nil
 	}
-	dir := filepath.Join(os.TempDir(), "mtype-ssh")
+	dir := filepath.Join(os.TempDir(), "gotype-ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}

@@ -373,9 +373,9 @@ func (m Model) View() string {
 
 func (m Model) viewConfig() string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("mtype"))
+	b.WriteString(styleTitle.Render("gotype"))
 	b.WriteString("\n")
-	b.WriteString(styleSub.Render("monkeytype for your terminal"))
+	b.WriteString(styleSub.Render("typing races in your terminal"))
 	b.WriteString("\n\n")
 
 	modeTime := styleOption.Render("time")
