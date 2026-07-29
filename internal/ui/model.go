@@ -227,7 +227,7 @@ func (m Model) updateResult(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
-	case "tab", "enter", " ":
+	case "tab", "enter":
 		m.startTest()
 	case "esc":
 		m.phase = phaseConfig
