@@ -58,6 +58,23 @@ func TestCreateJoinStartRace(t *testing.T) {
 	if done.Players[0].Name != "alice" {
 		t.Fatalf("winner=%s", done.Players[0].Name)
 	}
+
+	again, err := h.Rematch(a, now.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Phase != PhaseLobby {
+		t.Fatalf("rematch phase=%v", again.Phase)
+	}
+	if again.Code != va.Code {
+		t.Fatalf("code changed: %s vs %s", again.Code, va.Code)
+	}
+	if len(again.Players) != 2 {
+		t.Fatalf("players=%d", len(again.Players))
+	}
+	if again.Players[0].Prog.WPM != 0 {
+		t.Fatal("expected cleared progress")
+	}
 }
 
 func TestGenerateSeedMatch(t *testing.T) {

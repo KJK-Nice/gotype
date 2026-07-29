@@ -101,6 +101,7 @@ var (
 	ErrNotHost       = errors.New("only host can start")
 	ErrNotEnough     = errors.New("need at least 2 players")
 	ErrBadPhase      = errors.New("room not in lobby")
+	ErrNotDone       = errors.New("race not finished")
 	ErrNameTaken     = errors.New("name taken in room")
 )
 
@@ -243,6 +244,29 @@ func (h *Hub) Start(playerID string, now time.Time) (View, error) {
 	room.Seed = seed
 	room.Phase = PhaseCountdown
 	room.CountdownEnds = now.Add(CountdownSecs * time.Second)
+	return h.viewLocked(room, playerID, now), nil
+}
+
+// Rematch resets a finished room back to lobby — same code, same players.
+func (h *Hub) Rematch(playerID string, now time.Time) (View, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.roomForLocked(playerID)
+	if err != nil {
+		return View{}, err
+	}
+	if room.Phase != PhaseDone {
+		return View{}, ErrNotDone
+	}
+	room.Phase = PhaseLobby
+	room.Seed = 0
+	room.CountdownEnds = time.Time{}
+	room.RaceStarted = time.Time{}
+	room.RaceEnds = time.Time{}
+	for _, p := range room.Players {
+		p.Prog = Progress{}
+		p.Ready = false
+	}
 	return h.viewLocked(room, playerID, now), nil
 }
 

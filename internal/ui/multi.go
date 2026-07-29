@@ -130,10 +130,23 @@ func (m Model) updatePodium(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		m.leaveMulti()
 		return m, tea.Quit
-	case "esc", "enter", "tab":
+	case "esc":
 		m.leaveMulti()
 		m.phase = phaseMultiMenu
 		m.sess = nil
+	case "tab", "enter", "r":
+		// Rematch: keep room code + players, back to lobby.
+		v, err := m.hub.Rematch(m.playerID, m.now)
+		if err != nil {
+			m.statusErr = err.Error()
+			return m, nil
+		}
+		m.statusErr = ""
+		m.sess = nil
+		m.raceStarted = false
+		m.resetCaret()
+		m.multiView = v
+		m.phase = phaseLobby
 	}
 	return m, nil
 }
@@ -179,7 +192,16 @@ func (m *Model) syncMulti() {
 func (m *Model) applyMultiView(v multi.View) {
 	switch v.Phase {
 	case multi.PhaseLobby, multi.PhaseCountdown:
-		if m.phase == phaseTyping || m.phase == phasePodium || m.phase == phaseResult {
+		// Rematch: everyone still in room snaps back to lobby.
+		if m.phase == phasePodium || m.raceStarted {
+			m.raceStarted = false
+			m.sess = nil
+			m.resetCaret()
+			m.statusErr = ""
+			m.phase = phaseLobby
+			break
+		}
+		if m.phase == phaseTyping {
 			break
 		}
 		m.phase = phaseLobby
@@ -366,7 +388,7 @@ func (m Model) viewPodium() string {
 		}
 	}
 	b.WriteString("\n\n")
-	b.WriteString(styleSub.Render("enter/esc lobby  q quit"))
+	b.WriteString(styleSub.Render("enter/tab/r again  esc leave  q quit"))
 	return b.String()
 }
 
