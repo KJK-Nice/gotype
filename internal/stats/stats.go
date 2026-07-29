@@ -128,9 +128,15 @@ func (c *Calculator) Snapshot(now time.Time) Snapshot {
 
 	typed := c.Correct + c.Incorrect + c.Extra
 	accDenom := typed
-	acc := 100.0
+	acc := 0.0
 	if accDenom > 0 {
 		acc = float64(c.Correct) / float64(accDenom) * 100.0
+	} else if c.finished {
+		// No keystrokes in a finished test — not a perfect score.
+		acc = 0.0
+	} else {
+		// Live, nothing typed yet: show 100% until first stroke (solo HUD nicety).
+		acc = 100.0
 	}
 
 	return Snapshot{

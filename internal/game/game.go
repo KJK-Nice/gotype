@@ -64,6 +64,7 @@ type Session struct {
 	Typed        [][]rune // typed runes per word
 	Started      bool
 	Finished     bool
+	NoAutoFinish bool // multiplayer: hub ends the race, not local timer
 	Stats        stats.Calculator
 	StartedAt    time.Time
 	History      []stats.Point   // WPM samples for result chart
@@ -293,7 +294,7 @@ func (s *Session) Tick(now time.Time) bool {
 		return false
 	}
 	s.Sample(now)
-	if s.Config.Mode != ModeTime {
+	if s.NoAutoFinish || s.Config.Mode != ModeTime {
 		return false
 	}
 	if now.Sub(s.StartedAt) >= s.Config.Duration {

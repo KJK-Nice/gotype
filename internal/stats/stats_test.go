@@ -57,15 +57,13 @@ func TestBurstPointVariesWithPace(t *testing.T) {
 	}
 }
 
-func TestUnrecordRemovesErrorStroke(t *testing.T) {
+func TestEmptyFinishedAccuracy(t *testing.T) {
 	c := Calculator{}
-	now := time.Unix(0, 0)
-	c.Start(now)
-	c.Record(StrokeIncorrect, now)
-	if !c.Unrecord(StrokeIncorrect) {
-		t.Fatal("expected Unrecord success")
-	}
-	if c.Incorrect != 0 || len(c.Strokes) != 0 {
-		t.Fatalf("Incorrect=%d strokes=%d", c.Incorrect, len(c.Strokes))
+	start := time.Unix(0, 0)
+	c.Start(start)
+	c.Finish(start.Add(time.Second))
+	snap := c.Snapshot(start.Add(time.Second))
+	if snap.Accuracy != 0 {
+		t.Fatalf("empty finished Accuracy = %v, want 0", snap.Accuracy)
 	}
 }

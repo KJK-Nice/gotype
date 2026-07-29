@@ -578,7 +578,11 @@ func (m Model) viewResult() string {
 
 	row("wpm", fmt.Sprintf("%.0f", snap.WPM))
 	row("raw", fmt.Sprintf("%.0f", snap.RawWPM))
-	row("acc", fmt.Sprintf("%.0f%%", snap.Accuracy))
+	if snap.Correct+snap.Incorrect+snap.Extra == 0 {
+		row("acc", "—")
+	} else {
+		row("acc", fmt.Sprintf("%.0f%%", snap.Accuracy))
+	}
 	row("time", fmt.Sprintf("%.1fs", snap.Elapsed.Seconds()))
 	row("correct", fmt.Sprintf("%d", snap.Correct))
 	row("wrong", fmt.Sprintf("%d", snap.Incorrect+snap.Extra))

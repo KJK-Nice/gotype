@@ -87,6 +87,16 @@ func (m Model) updateJoin(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateLobby(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If hub already racing, enter race on any key and apply this keystroke.
+	if m.hub != nil && m.roomCode != "" {
+		m.syncMulti()
+		if m.phase == phaseTyping {
+			return m.updateTyping(msg)
+		}
+		if m.phase == phasePodium {
+			return m.updatePodium(msg)
+		}
+	}
 	switch msg.String() {
 	case "q":
 		m.leaveMulti()
@@ -107,6 +117,10 @@ func (m Model) updateLobby(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusErr = ""
 		m.multiView = v
 		m.applyMultiView(v)
+	default:
+		if m.multiView.Phase == multi.PhaseCountdown {
+			m.statusErr = "wait for countdown"
+		}
 	}
 	return m, nil
 }
@@ -181,6 +195,7 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.sess.Started = true
 			m.sess.StartedAt = start
 			m.sess.Stats.Start(start)
+			m.sess.NoAutoFinish = true // hub PhaseDone ends race; keep input alive
 			m.raceStarted = true
 			m.resetCaret()
 			m.phase = phaseTyping
@@ -329,7 +344,11 @@ func (m Model) viewPodium() string {
 	b.WriteString("\n\n")
 	for _, p := range v.Players {
 		medal := fmt.Sprintf("%d.", p.Rank)
-		line := fmt.Sprintf("%-3s %-10s  %5.0f wpm  %3.0f%%", medal, truncateName(p.Name, 10), p.Prog.WPM, p.Prog.Accuracy)
+		acc := fmt.Sprintf("%3.0f%%", p.Prog.Accuracy)
+		if p.Prog.Chars == 0 && p.Prog.Correct == 0 {
+			acc = "  —"
+		}
+		line := fmt.Sprintf("%-3s %-10s  %5.0f wpm  %s", medal, truncateName(p.Name, 10), p.Prog.WPM, acc)
 		if p.You {
 			b.WriteString(styleMain.Render(line))
 		} else {
@@ -340,7 +359,11 @@ func (m Model) viewPodium() string {
 	if m.sess != nil {
 		snap := m.sess.Snapshot(m.now)
 		b.WriteString("\n")
-		b.WriteString(styleSub.Render(fmt.Sprintf("you · %.0f wpm · %.0f%% acc", snap.WPM, snap.Accuracy)))
+		if snap.Correct+snap.Incorrect+snap.Extra == 0 {
+			b.WriteString(styleSub.Render("you · 0 wpm · — acc (no input)"))
+		} else {
+			b.WriteString(styleSub.Render(fmt.Sprintf("you · %.0f wpm · %.0f%% acc", snap.WPM, snap.Accuracy)))
+		}
 	}
 	b.WriteString("\n\n")
 	b.WriteString(styleSub.Render("enter/esc lobby  q quit"))
