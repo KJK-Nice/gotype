@@ -50,15 +50,16 @@ Over `mtype-ssh`, press **m** on the menu:
 1. **c** create room → share 4-letter code
 2. Friend **j** join → type code
 3. Host **s** / enter to start (need 2–4 players)
-4. 3s countdown → same prompt → live WPM bars
-5. Podium when time ends (or all finish)
-6. **enter / tab / r** rematch — same room code + players; host **s** to start again
-7. New friends: **j** + same code during **podium or lobby** (between rounds)
-8. **esc** leave room
+4. 3s countdown → same prompt → live WPM bars + pace ghost
+5. Podium — **best of 3** series score
+6. **enter / tab / r** next race (same room); after match win, resets series
+7. New friends: **j** + same code during podium/lobby
+8. Chat: **g** = gg, **/** compose (`glhf`, `wp`, …)
+9. **esc** leave room
 
-SSH username = display name (`ssh alice@host -p PORT`).
+👑 = win streak. Solo: finish a run to unlock **pace ghost** on the next test.
 
-Solo `go run ./cmd/mtype` has no multiplayer (no shared hub).
+Themes: **p** on main menu cycles serika / serika light / nord / olive / dracula.
 
 ## Play over SSH
 

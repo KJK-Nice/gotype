@@ -93,7 +93,9 @@ func (m Model) updateJoin(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateLobby(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// If hub already racing, enter race on any key and apply this keystroke.
+	if m.chatMode {
+		return m.updateChat(msg)
+	}
 	if m.hub != nil && m.roomCode != "" {
 		m.syncMulti()
 		if m.phase == phaseTyping {
@@ -123,6 +125,12 @@ func (m Model) updateLobby(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusErr = ""
 		m.multiView = v
 		m.applyMultiView(v)
+	case "g":
+		return m.sendChat("gg")
+	case "/":
+		m.chatMode = true
+		m.chatInput = ""
+		m.statusErr = ""
 	default:
 		if m.multiView.Phase == multi.PhaseCountdown {
 			m.statusErr = "wait for countdown"
@@ -132,6 +140,9 @@ func (m Model) updateLobby(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updatePodium(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.chatMode {
+		return m.updateChat(msg)
+	}
 	switch msg.String() {
 	case "q":
 		m.leaveMulti()
@@ -141,7 +152,6 @@ func (m Model) updatePodium(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.phase = phaseMultiMenu
 		m.sess = nil
 	case "tab", "enter", "r":
-		// Rematch: keep room code + players, back to lobby.
 		v, err := m.hub.Rematch(m.playerID, m.now)
 		if err != nil {
 			m.statusErr = err.Error()
@@ -153,7 +163,59 @@ func (m Model) updatePodium(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.resetCaret()
 		m.multiView = v
 		m.phase = phaseLobby
+	case "g":
+		return m.sendChat("gg")
+	case "/":
+		m.chatMode = true
+		m.chatInput = ""
+		m.statusErr = ""
 	}
+	return m, nil
+}
+
+func (m Model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.chatMode = false
+		m.chatInput = ""
+	case "enter":
+		text := m.chatInput
+		m.chatMode = false
+		m.chatInput = ""
+		if text == "" {
+			return m, nil
+		}
+		return m.sendChat(text)
+	case "backspace":
+		if len(m.chatInput) > 0 {
+			r := []rune(m.chatInput)
+			m.chatInput = string(r[:len(r)-1])
+		}
+	default:
+		if msg.Type == tea.KeyRunes {
+			for _, r := range msg.Runes {
+				if len([]rune(m.chatInput)) >= 48 {
+					break
+				}
+				m.chatInput += string(r)
+			}
+		} else if s := msg.String(); len(s) == 1 {
+			if len([]rune(m.chatInput)) < 48 {
+				m.chatInput += s
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m Model) sendChat(text string) (tea.Model, tea.Cmd) {
+	v, err := m.hub.Say(m.playerID, text)
+	if err != nil {
+		m.statusErr = err.Error()
+		return m, nil
+	}
+	m.multiView = v
+	m.statusErr = ""
 	return m, nil
 }
 
@@ -166,6 +228,8 @@ func (m *Model) leaveMulti() {
 	m.raceStarted = false
 	m.statusErr = ""
 	m.joinInput = ""
+	m.chatMode = false
+	m.chatInput = ""
 }
 
 func (m *Model) syncMulti() {
@@ -175,13 +239,18 @@ func (m *Model) syncMulti() {
 	var v multi.View
 	if m.phase == phaseTyping && m.sess != nil {
 		snap := m.sess.Snapshot(m.now)
+		chars := m.sess.ProgressChars()
 		v = m.hub.Report(m.playerID, multi.Progress{
 			WPM:      snap.WPM,
 			Accuracy: snap.Accuracy,
 			Correct:  snap.Correct,
-			Chars:    m.sess.ProgressChars(),
+			Chars:    chars,
 			Done:     m.sess.Finished,
 		}, m.now)
+		if m.sess.Started {
+			elapsed := m.now.Sub(m.sess.StartedAt)
+			m.ghostRec = append(m.ghostRec, GhostSample{At: elapsed, Chars: chars})
+		}
 	} else {
 		v = m.hub.Snapshot(m.playerID, m.now)
 	}
@@ -198,7 +267,6 @@ func (m *Model) syncMulti() {
 func (m *Model) applyMultiView(v multi.View) {
 	switch v.Phase {
 	case multi.PhaseLobby, multi.PhaseCountdown:
-		// Rematch: everyone still in room snaps back to lobby.
 		if m.phase == phasePodium || m.raceStarted {
 			m.raceStarted = false
 			m.sess = nil
@@ -215,7 +283,6 @@ func (m *Model) applyMultiView(v multi.View) {
 		if !m.raceStarted {
 			m.cfg = v.Config
 			m.sess = game.NewSessionSeeded(v.Config, v.Seed)
-			// Shared race clock — all players start timer together.
 			start := v.RaceStarted
 			if start.IsZero() {
 				start = m.now
@@ -223,8 +290,9 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.sess.Started = true
 			m.sess.StartedAt = start
 			m.sess.Stats.Start(start)
-			m.sess.NoAutoFinish = true // hub PhaseDone ends race; keep input alive
+			m.sess.NoAutoFinish = true
 			m.raceStarted = true
+			m.ghostRec = nil
 			m.resetCaret()
 			m.phase = phaseTyping
 		}
@@ -232,6 +300,10 @@ func (m *Model) applyMultiView(v multi.View) {
 		if m.sess != nil && !m.sess.Finished {
 			m.sess.ForceFinish(m.now)
 		}
+		if len(m.ghostRec) > 2 {
+			m.paceGhost = m.ghostRec
+		}
+		m.ghostRec = nil
 		m.phase = phasePodium
 	}
 }
@@ -240,7 +312,7 @@ func (m Model) viewMultiMenu() string {
 	var b strings.Builder
 	b.WriteString(styleTitle.Render("multiplayer"))
 	b.WriteString("\n")
-	b.WriteString(styleSub.Render("race friends over SSH"))
+	b.WriteString(styleSub.Render("race friends · best of 3"))
 	b.WriteString("\n\n")
 	b.WriteString(styleSelected.Render("c"))
 	b.WriteString(styleText.Render(" create room"))
@@ -272,12 +344,31 @@ func (m Model) viewJoin() string {
 	return b.String()
 }
 
+func (m Model) viewChat() string {
+	v := m.multiView
+	var b strings.Builder
+	if len(v.Chat) > 0 {
+		for _, line := range v.Chat {
+			b.WriteString(styleSub.Render(line.Name + ": "))
+			b.WriteString(styleText.Render(line.Text))
+			b.WriteString("\n")
+		}
+	}
+	if m.chatMode {
+		b.WriteString(styleMain.Render("> " + m.chatInput + "█"))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func (m Model) viewLobby() string {
 	v := m.multiView
 	var b strings.Builder
 	b.WriteString(styleTitle.Render("lobby"))
 	b.WriteString("  ")
 	b.WriteString(styleMain.Render(v.Code))
+	b.WriteString("  ")
+	b.WriteString(styleSub.Render("bo3"))
 	b.WriteString("\n")
 	detail := fmt.Sprintf("%s · %s", v.Config.Mode.String(), game.FormatSeconds(v.Config.Duration)+"s")
 	if v.Config.Mode == game.ModeWords {
@@ -296,13 +387,18 @@ func (m Model) viewLobby() string {
 	}
 
 	for _, p := range v.Players {
-		line := fmt.Sprintf("%-12s", p.Name)
-		if p.You {
-			line = styleMain.Render(line)
-		} else {
-			line = styleText.Render(line)
+		crown := "  "
+		if p.Crown {
+			crown = "👑"
 		}
-		b.WriteString(line)
+		score := fmt.Sprintf(" %d", p.MatchWins)
+		name := fmt.Sprintf("%s %-10s", crown, truncateName(p.Name, 10))
+		if p.You {
+			b.WriteString(styleMain.Render(name))
+		} else {
+			b.WriteString(styleText.Render(name))
+		}
+		b.WriteString(styleStatValue.Render(score))
 		if p.IsHost {
 			b.WriteString(styleSub.Render(" host"))
 		}
@@ -312,16 +408,19 @@ func (m Model) viewLobby() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+	b.WriteString(m.viewChat())
 	if m.statusErr != "" {
 		b.WriteString(styleIncorrect.Render(m.statusErr))
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
-	if v.YouAreHost && v.Phase == multi.PhaseLobby {
-		b.WriteString(styleSub.Render("s/enter start  share code for friends  esc leave"))
+	if m.chatMode {
+		b.WriteString(styleSub.Render("enter send  esc cancel"))
+	} else if v.YouAreHost && v.Phase == multi.PhaseLobby {
+		b.WriteString(styleSub.Render("s start  g gg  / chat  esc leave"))
 	} else if v.Phase == multi.PhaseCountdown {
 		b.WriteString(styleSub.Render("get ready…"))
 	} else {
-		b.WriteString(styleSub.Render("waiting for host  share code  esc leave"))
+		b.WriteString(styleSub.Render("waiting  g gg  / chat  esc leave"))
 	}
 	return b.String()
 }
@@ -340,11 +439,15 @@ func (m Model) viewRaceOpponents() string {
 	var b strings.Builder
 	b.WriteString("\n")
 	for _, p := range v.Players {
-		name := fmt.Sprintf("%-10s", truncateName(p.Name, 10))
+		crown := ""
+		if p.Crown {
+			crown = "👑"
+		}
+		name := fmt.Sprintf("%s%-8s", crown, truncateName(p.Name, 8))
 		if p.You {
-			b.WriteString(styleMain.Render(name))
+			b.WriteString(styleMain.Render(fmt.Sprintf("%-10s", name)))
 		} else {
-			b.WriteString(styleSub.Render(name))
+			b.WriteString(styleSub.Render(fmt.Sprintf("%-10s", name)))
 		}
 		b.WriteString(" ")
 		b.WriteString(styleStatValue.Render(fmt.Sprintf("%3.0f", p.Prog.WPM)))
@@ -355,6 +458,7 @@ func (m Model) viewRaceOpponents() string {
 		} else {
 			b.WriteString(styleSub.Render(bar))
 		}
+		b.WriteString(styleSub.Render(fmt.Sprintf(" %d", p.MatchWins)))
 		if p.Prog.Done {
 			b.WriteString(styleSub.Render(" done"))
 		}
@@ -369,14 +473,27 @@ func (m Model) viewPodium() string {
 	b.WriteString(styleTitle.Render("podium"))
 	b.WriteString("  ")
 	b.WriteString(styleSub.Render(v.Code))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	if v.MatchOver {
+		b.WriteString(styleMain.Render("match · " + v.MatchWinnerName + " wins bo3"))
+		b.WriteString("\n")
+	} else {
+		b.WriteString(styleSub.Render("best of 3"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 	for _, p := range v.Players {
 		medal := fmt.Sprintf("%d.", p.Rank)
 		acc := fmt.Sprintf("%3.0f%%", p.Prog.Accuracy)
 		if p.Prog.Chars == 0 && p.Prog.Correct == 0 {
 			acc = "  —"
 		}
-		line := fmt.Sprintf("%-3s %-10s  %5.0f wpm  %s", medal, truncateName(p.Name, 10), p.Prog.WPM, acc)
+		crown := " "
+		if p.Crown {
+			crown = "👑"
+		}
+		line := fmt.Sprintf("%-3s%s %-9s %5.0f wpm %s  %d/%d",
+			medal, crown, truncateName(p.Name, 9), p.Prog.WPM, acc, p.MatchWins, multi.WinsToTakeMatch)
 		if p.You {
 			b.WriteString(styleMain.Render(line))
 		} else {
@@ -392,13 +509,21 @@ func (m Model) viewPodium() string {
 		} else {
 			b.WriteString(styleSub.Render(fmt.Sprintf("you · %.0f wpm · %.0f%% acc", snap.WPM, snap.Accuracy)))
 		}
+		b.WriteString("\n")
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	b.WriteString(m.viewChat())
 	b.WriteString(styleSub.Render("share "))
 	b.WriteString(styleMain.Render(v.Code))
 	b.WriteString(styleSub.Render(" — friends join anytime"))
 	b.WriteString("\n")
-	b.WriteString(styleSub.Render("enter/tab/r again  esc leave  q quit"))
+	if m.chatMode {
+		b.WriteString(styleSub.Render("enter send  esc cancel"))
+	} else if v.MatchOver {
+		b.WriteString(styleSub.Render("enter new series  g gg  / chat  esc leave"))
+	} else {
+		b.WriteString(styleSub.Render("enter next race  g gg  / chat  esc leave"))
+	}
 	return b.String()
 }
 

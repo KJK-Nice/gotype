@@ -56,6 +56,12 @@ type Model struct {
 	statusErr   string
 	multiView   multi.View
 	raceStarted bool
+
+	themeIdx  int
+	paceGhost PaceGhost // last race to chase
+	ghostRec  PaceGhost // recording current race
+	chatMode  bool
+	chatInput string
 }
 
 type focusField int
@@ -111,10 +117,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncMulti()
 		}
 		if m.phase == phaseTyping && m.sess != nil {
+			if m.sess.Started {
+				elapsed := m.now.Sub(m.sess.StartedAt)
+				m.ghostRec = append(m.ghostRec, GhostSample{At: elapsed, Chars: m.sess.ProgressChars()})
+			}
 			if m.sess.Tick(m.now) {
 				if m.roomCode != "" {
 					m.syncMulti()
 				} else {
+					if len(m.ghostRec) > 2 {
+						m.paceGhost = m.ghostRec
+					}
+					m.ghostRec = nil
 					m.phase = phaseResult
 				}
 			} else {
@@ -199,6 +213,9 @@ func (m Model) updateConfig(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.statusErr = ""
 			m.phase = phaseMultiMenu
 		}
+	case "p":
+		m.themeIdx = (m.themeIdx + 1) % len(themes)
+		ApplyTheme(m.themeIdx)
 	}
 	return m, nil
 }
@@ -247,6 +264,7 @@ func (m *Model) startTest() {
 	m.phase = phaseTyping
 	m.now = time.Now()
 	m.resetCaret()
+	m.ghostRec = nil
 }
 
 func (m Model) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -410,10 +428,13 @@ func (m Model) viewConfig() string {
 	}
 
 	b.WriteString("\n\n")
+	b.WriteString(styleSub.Render("theme "))
+	b.WriteString(styleMain.Render(ThemeName(m.themeIdx)))
+	b.WriteString("\n\n")
 	if m.multiEnabled() {
-		b.WriteString(styleSub.Render("↑↓ change  tab focus  enter start  m multi  t/w mode  q quit"))
+		b.WriteString(styleSub.Render("↑↓ change  tab focus  enter start  m multi  p theme  t/w mode  q quit"))
 	} else {
-		b.WriteString(styleSub.Render("↑↓ change  tab focus  enter start  t/w mode  q quit"))
+		b.WriteString(styleSub.Render("↑↓ change  tab focus  enter start  p theme  t/w mode  q quit"))
 	}
 	return b.String()
 }
@@ -434,6 +455,9 @@ func (m Model) viewTyping() string {
 		hud += styleSub.Render(" wpm")
 		hud += "  " + styleStatValue.Render(fmt.Sprintf("%.0f%%", snap.Accuracy))
 		hud += styleSub.Render(" acc")
+		if len(m.paceGhost) > 0 {
+			hud += "  " + styleSub.Render("ghost")
+		}
 	} else {
 		hud += "  " + styleSub.Render("start typing…")
 	}
@@ -481,8 +505,15 @@ func (m Model) renderPrompt() string {
 
 		var styled string
 		showBlock := i == visual && m.caretOn
+		ghostIdx := -1
+		if len(m.paceGhost) > 0 && m.sess.Started {
+			elapsed := m.now.Sub(m.sess.StartedAt)
+			ghostIdx = indexForProgressChars(s.Chars, m.paceGhost.CharsAt(elapsed))
+		}
 		if showBlock {
 			styled = styleCaret.Render(glyph)
+		} else if i == ghostIdx {
+			styled = styleGhost.Render(glyph)
 		} else if life, ok := m.trail[i]; ok && life > 0 {
 			styled = styleWithTrail(base, life).Render(glyph)
 		} else {

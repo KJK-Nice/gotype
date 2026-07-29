@@ -5,18 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kjkusap/monkeytype-clone/internal/game"
 )
 
 const (
-	MaxPlayers    = 4
-	MinPlayers    = 2
-	CountdownSecs = 3
-	codeAlphabet  = "ABCDEFGHJKLMNPQRSTUVWXYZ"
-	codeLen       = 4
+	MaxPlayers      = 4
+	MinPlayers      = 2
+	CountdownSecs   = 3
+	WinsToTakeMatch = 2 // best-of-3
+	codeAlphabet    = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+	codeLen         = 4
+	maxChatLines    = 6
+	maxChatLen      = 48
 )
 
 type Phase int
@@ -49,13 +54,20 @@ type Progress struct {
 	Done     bool
 }
 
+type ChatLine struct {
+	Name string
+	Text string
+}
+
 type Player struct {
-	ID       string
-	Name     string
-	IsHost   bool
-	Ready    bool
-	Prog     Progress
-	JoinedAt time.Time
+	ID        string
+	Name      string
+	IsHost    bool
+	Ready     bool
+	Prog      Progress
+	MatchWins int // series score (best-of-3)
+	Streak    int // consecutive race wins
+	JoinedAt  time.Time
 }
 
 type Room struct {
@@ -68,30 +80,40 @@ type Room struct {
 	CountdownEnds time.Time
 	RaceStarted   time.Time
 	RaceEnds      time.Time
+	Scored        bool // awarded this race already
+	MatchOver     bool
+	MatchWinnerID string
+	Chat          []ChatLine
 }
 
 type PlayerView struct {
-	ID     string
-	Name   string
-	IsHost bool
-	Ready  bool
-	Prog   Progress
-	You    bool
-	Rank   int
+	ID        string
+	Name      string
+	IsHost    bool
+	Ready     bool
+	Prog      Progress
+	You       bool
+	Rank      int
+	MatchWins int
+	Streak    int
+	Crown     bool // streak > 0
 }
 
 type View struct {
-	Code          string
-	Phase         Phase
-	Config        game.Config
-	Seed          uint64
-	HostID        string
-	YouAreHost    bool
-	Players       []PlayerView
-	CountdownLeft time.Duration
-	RaceRemaining time.Duration
-	RaceStarted   time.Time
-	Err           string
+	Code            string
+	Phase           Phase
+	Config          game.Config
+	Seed            uint64
+	HostID          string
+	YouAreHost      bool
+	Players         []PlayerView
+	CountdownLeft   time.Duration
+	RaceRemaining   time.Duration
+	RaceStarted     time.Time
+	MatchOver       bool
+	MatchWinnerName string
+	Chat            []ChatLine
+	Err             string
 }
 
 var (
@@ -102,14 +124,14 @@ var (
 	ErrNotEnough     = errors.New("need at least 2 players")
 	ErrBadPhase      = errors.New("room not in lobby")
 	ErrNotDone       = errors.New("race not finished")
-	ErrNameTaken     = errors.New("name taken in room")
+	ErrEmptyChat     = errors.New("empty message")
 )
 
 // Hub is an in-process multiplayer matchmaker (one Railway replica).
 type Hub struct {
 	mu       sync.Mutex
 	rooms    map[string]*Room
-	byPlayer map[string]string // playerID → room code
+	byPlayer map[string]string
 }
 
 func NewHub() *Hub {
@@ -165,7 +187,6 @@ func (h *Hub) Join(playerID, name, code string) (View, error) {
 	if !ok {
 		return View{}, ErrRoomNotFound
 	}
-	// Join between rounds: lobby, or podium before rematch.
 	if room.Phase != PhaseLobby && room.Phase != PhaseDone {
 		return View{}, ErrBadPhase
 	}
@@ -208,7 +229,6 @@ func (h *Hub) Leave(playerID string) {
 		return
 	}
 	if room.HostID == playerID {
-		// Promote oldest remaining player.
 		var next *Player
 		for _, p := range room.Players {
 			if next == nil || p.JoinedAt.Before(next.JoinedAt) {
@@ -245,10 +265,11 @@ func (h *Hub) Start(playerID string, now time.Time) (View, error) {
 	room.Seed = seed
 	room.Phase = PhaseCountdown
 	room.CountdownEnds = now.Add(CountdownSecs * time.Second)
+	room.Scored = false
 	return h.viewLocked(room, playerID, now), nil
 }
 
-// Rematch resets a finished room back to lobby — same code, same players.
+// Rematch resets a finished race back to lobby. Clears series if match already won.
 func (h *Hub) Rematch(playerID string, now time.Time) (View, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -259,16 +280,47 @@ func (h *Hub) Rematch(playerID string, now time.Time) (View, error) {
 	if room.Phase != PhaseDone {
 		return View{}, ErrNotDone
 	}
+	if room.MatchOver {
+		for _, p := range room.Players {
+			p.MatchWins = 0
+			p.Streak = 0
+		}
+		room.MatchOver = false
+		room.MatchWinnerID = ""
+	}
 	room.Phase = PhaseLobby
 	room.Seed = 0
 	room.CountdownEnds = time.Time{}
 	room.RaceStarted = time.Time{}
 	room.RaceEnds = time.Time{}
+	room.Scored = false
 	for _, p := range room.Players {
 		p.Prog = Progress{}
 		p.Ready = false
 	}
 	return h.viewLocked(room, playerID, now), nil
+}
+
+func (h *Hub) Say(playerID, text string) (View, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.roomForLocked(playerID)
+	if err != nil {
+		return View{}, err
+	}
+	p := room.Players[playerID]
+	if p == nil {
+		return View{}, ErrRoomNotFound
+	}
+	text = normalizeChat(text)
+	if text == "" {
+		return View{}, ErrEmptyChat
+	}
+	room.Chat = append(room.Chat, ChatLine{Name: p.Name, Text: text})
+	if len(room.Chat) > maxChatLines {
+		room.Chat = room.Chat[len(room.Chat)-maxChatLines:]
+	}
+	return h.viewLocked(room, playerID, time.Now()), nil
 }
 
 func (h *Hub) Report(playerID string, prog Progress, now time.Time) View {
@@ -321,7 +373,37 @@ func (h *Hub) advanceLocked(room *Room, now time.Time) {
 			for _, p := range room.Players {
 				p.Prog.Done = true
 			}
+			h.awardRaceLocked(room)
 		}
+	}
+}
+
+func (h *Hub) awardRaceLocked(room *Room) {
+	if room.Scored {
+		return
+	}
+	room.Scored = true
+
+	var winner *Player
+	for _, p := range room.Players {
+		if p.Prog.Chars == 0 && p.Prog.Correct == 0 {
+			continue
+		}
+		if winner == nil || p.Prog.WPM > winner.Prog.WPM {
+			winner = p
+		}
+	}
+	for _, p := range room.Players {
+		if winner != nil && p.ID == winner.ID {
+			p.Streak++
+			p.MatchWins++
+		} else {
+			p.Streak = 0
+		}
+	}
+	if winner != nil && winner.MatchWins >= WinsToTakeMatch {
+		room.MatchOver = true
+		room.MatchWinnerID = winner.ID
 	}
 }
 
@@ -341,12 +423,15 @@ func (h *Hub) viewLocked(room *Room, playerID string, now time.Time) View {
 	players := make([]PlayerView, 0, len(room.Players))
 	for _, p := range room.Players {
 		players = append(players, PlayerView{
-			ID:     p.ID,
-			Name:   p.Name,
-			IsHost: p.ID == room.HostID,
-			Ready:  p.Ready,
-			Prog:   p.Prog,
-			You:    p.ID == playerID,
+			ID:        p.ID,
+			Name:      p.Name,
+			IsHost:    p.ID == room.HostID,
+			Ready:     p.Ready,
+			Prog:      p.Prog,
+			You:       p.ID == playerID,
+			MatchWins: p.MatchWins,
+			Streak:    p.Streak,
+			Crown:     p.Streak > 0,
 		})
 	}
 	sort.Slice(players, func(i, j int) bool {
@@ -354,6 +439,9 @@ func (h *Hub) viewLocked(room *Room, playerID string, now time.Time) View {
 			if players[i].Prog.WPM != players[j].Prog.WPM {
 				return players[i].Prog.WPM > players[j].Prog.WPM
 			}
+		}
+		if players[i].MatchWins != players[j].MatchWins {
+			return players[i].MatchWins > players[j].MatchWins
 		}
 		return players[i].Name < players[j].Name
 	})
@@ -369,6 +457,13 @@ func (h *Hub) viewLocked(room *Room, playerID string, now time.Time) View {
 		HostID:     room.HostID,
 		YouAreHost: room.HostID == playerID,
 		Players:    players,
+		MatchOver:  room.MatchOver,
+		Chat:       append([]ChatLine(nil), room.Chat...),
+	}
+	if room.MatchWinnerID != "" {
+		if p := room.Players[room.MatchWinnerID]; p != nil {
+			v.MatchWinnerName = p.Name
+		}
 	}
 	switch room.Phase {
 	case PhaseCountdown:
@@ -436,4 +531,30 @@ func randomSeed() (uint64, error) {
 		seed = 1
 	}
 	return seed, nil
+}
+
+func normalizeChat(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	lower := strings.ToLower(text)
+	switch lower {
+	case "/gg", "gg":
+		return "gg"
+	case "/glhf", "glhf":
+		return "glhf"
+	case "/wp", "wp":
+		return "wp"
+	case "/nt", "nt":
+		return "nt"
+	}
+	if strings.HasPrefix(lower, "/") {
+		text = strings.TrimSpace(text[1:])
+	}
+	if utf8.RuneCountInString(text) > maxChatLen {
+		r := []rune(text)
+		text = string(r[:maxChatLen])
+	}
+	return text
 }
