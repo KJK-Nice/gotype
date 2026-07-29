@@ -69,8 +69,15 @@ PORT=2222 go run ./cmd/mtype-ssh
 Deploy from this repo (Dockerfile builds `mtype-ssh`). Enable a **TCP Proxy** to internal port `2222`, and set secret `SSH_HOST_KEY` to a durable ed25519 PEM (generate once; redeploys keep the same fingerprint).
 
 ```bash
-# generate once, paste PEM into Railway variable SSH_HOST_KEY
+# generate once
 ssh-keygen -t ed25519 -f host_ed25519 -N "" -C mtype-ssh
+
+railway login
+railway init   # or: railway link
+railway up
+railway variables set SSH_HOST_KEY="$(cat host_ed25519)"
+railway variables set PORT=2222
+# Dashboard → service → Settings → Networking → TCP Proxy → port 2222
 ```
 
 Connect (Railway assigns a high public port — not 22):
