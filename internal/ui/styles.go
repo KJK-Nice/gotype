@@ -46,6 +46,7 @@ var (
 	stylePending = lipgloss.NewStyle().
 			Foreground(colSub)
 
+	// Block caret (Monkeytype block style).
 	styleCaret = lipgloss.NewStyle().
 			Foreground(colBg).
 			Background(colCaret)
@@ -69,3 +70,19 @@ var (
 	styleBox = lipgloss.NewStyle().
 			Padding(1, 2)
 )
+
+// trailBackground fades the Neovide-style caret ghost by remaining life (1..trailMaxLife).
+func trailBackground(life int) lipgloss.Color {
+	switch {
+	case life >= 5:
+		return lipgloss.Color("#c4a012")
+	case life >= 3:
+		return lipgloss.Color("#8a7010")
+	default:
+		return lipgloss.Color("#5a4a0c")
+	}
+}
+
+func styleWithTrail(base lipgloss.Style, life int) lipgloss.Style {
+	return base.Background(trailBackground(life))
+}

@@ -21,21 +21,20 @@ const (
 
 type tickMsg time.Time
 
-func tickCmd() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
 // Model is the Bubble Tea root model.
 type Model struct {
-	phase  phase
-	cfg    game.Config
-	focus  focusField
-	sess   *game.Session
-	width  int
-	height int
-	now    time.Time
+	phase      phase
+	cfg        game.Config
+	focus      focusField
+	sess       *game.Session
+	width      int
+	height     int
+	now        time.Time
+	caretOn    bool
+	blinkTicks int
+	caretX     float64
+	caretReady bool
+	trail      map[int]int // index → remaining trail life
 }
 
 type focusField int
@@ -48,12 +47,13 @@ const (
 // New returns the initial menu model.
 func New() Model {
 	return Model{
-		phase:  phaseConfig,
-		cfg:    game.DefaultConfig,
-		focus:  focusMode,
-		width:  80,
-		height: 24,
-		now:    time.Now(),
+		phase:   phaseConfig,
+		cfg:     game.DefaultConfig,
+		focus:   focusMode,
+		width:   80,
+		height:  24,
+		now:     time.Now(),
+		caretOn: true,
 	}
 }
 
@@ -73,12 +73,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.phase == phaseTyping && m.sess != nil {
 			if m.sess.Tick(m.now) {
 				m.phase = phaseResult
+			} else {
+				m.stepCaret()
 			}
 		}
 		return m, tickCmd()
 
 	case tea.KeyMsg:
-		return m.handleKey(msg)
+		next, cmd := m.handleKey(msg)
+		nm, ok := next.(Model)
+		if !ok {
+			return next, cmd
+		}
+		if nm.phase == phaseTyping && nm.sess != nil {
+			nm.caretOn = true
+			nm.blinkTicks = 0
+			nm.stepCaret()
+		}
+		return nm, cmd
 	}
 	return m, nil
 }
@@ -175,6 +187,7 @@ func (m *Model) startTest() {
 	m.sess = game.NewSession(m.cfg)
 	m.phase = phaseTyping
 	m.now = time.Now()
+	m.resetCaret()
 }
 
 func (m Model) updateTyping(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -339,6 +352,7 @@ func (m Model) viewTyping() string {
 func (m Model) renderPrompt() string {
 	s := m.sess
 	cursor := s.CursorPos()
+	visual := m.caretVisualIndex()
 	wrapWidth := m.width - 8
 	if wrapWidth < 40 {
 		wrapWidth = 40
@@ -353,20 +367,24 @@ func (m Model) renderPrompt() string {
 
 	for i, ch := range s.Chars {
 		glyph := string(ch.R)
+		base := stylePending
+		switch ch.State {
+		case game.CharCorrect:
+			base = styleCorrect
+		case game.CharIncorrect:
+			base = styleIncorrect
+		case game.CharExtra:
+			base = styleExtra
+		}
+
 		var styled string
-		if i == cursor {
+		showBlock := i == visual && m.caretOn
+		if showBlock {
 			styled = styleCaret.Render(glyph)
+		} else if life, ok := m.trail[i]; ok && life > 0 {
+			styled = styleWithTrail(base, life).Render(glyph)
 		} else {
-			switch ch.State {
-			case game.CharCorrect:
-				styled = styleCorrect.Render(glyph)
-			case game.CharIncorrect:
-				styled = styleIncorrect.Render(glyph)
-			case game.CharExtra:
-				styled = styleExtra.Render(glyph)
-			default:
-				styled = stylePending.Render(glyph)
-			}
+			styled = base.Render(glyph)
 		}
 
 		// Soft-wrap on spaces when line gets long.
@@ -380,6 +398,10 @@ func (m Model) renderPrompt() string {
 		line.WriteString(styled)
 		col++
 	}
+	// Block caret past last character.
+	if visual >= len(s.Chars) && m.caretOn {
+		line.WriteString(styleCaret.Render(" "))
+	}
 	out.WriteString(line.String())
 
 	// Limit visible lines around cursor for readability.
@@ -392,16 +414,20 @@ func (m Model) renderPrompt() string {
 	caretLine := 0
 	rawCol := 0
 	lineIdx := 0
+	focus := visual
+	if focus < 0 {
+		focus = cursor
+	}
 	for i, ch := range s.Chars {
 		if ch.R == ' ' && rawCol >= wrapWidth {
 			lineIdx++
 			rawCol = 0
-			if i < cursor {
+			if i < focus {
 				caretLine = lineIdx
 			}
 			continue
 		}
-		if i == cursor {
+		if i == focus {
 			caretLine = lineIdx
 			break
 		}
