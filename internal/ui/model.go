@@ -8,6 +8,14 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/stopwatch"
+	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/timer"
+	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 
 	"github.com/kjkusap/monkeytype-clone/internal/game"
@@ -70,10 +78,22 @@ type Model struct {
 	playerID    string
 	playerName  string
 	roomCode    string
-	joinInput   string
 	statusErr   string
 	multiView   multi.View
 	raceStarted bool
+
+	// bubbles widgets
+	joinTI      textinput.Model
+	chatTI      textinput.Model
+	spin        spinner.Model
+	help        help.Model
+	cdTimer     timer.Model
+	cdOn        bool
+	stopwatch   stopwatch.Model
+	tipList     list.Model
+	podiumTable table.Model
+	chatVP      viewport.Model
+	pendingCmd  tea.Cmd
 
 	themeIdx     int
 	sty          Styles // per-session theme (not process-global)
@@ -83,7 +103,6 @@ type Model struct {
 	ghostRec     PaceGhost // recording current race
 	ghostOn      bool      // show pace ghost caret
 	chatMode     bool
-	chatInput    string
 	roastText    string
 	roastLoading bool
 
@@ -118,7 +137,7 @@ func NewWithOptions(opts Options) Model {
 	if name == "" {
 		name = "player"
 	}
-	return Model{
+	m := Model{
 		phase:        phaseConfig,
 		cfg:          game.DefaultConfig,
 		focus:        focusMode,
@@ -134,6 +153,8 @@ func NewWithOptions(opts Options) Model {
 		ghostOn:      true,
 		autoSpectate: opts.AutoSpectate,
 	}
+	m.initBubbles()
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -141,6 +162,23 @@ func (m Model) Init() tea.Cmd {
 		return tea.Batch(tickCmd(), m.startAutoSpectate())
 	}
 	return tickCmd()
+}
+
+func (m *Model) queueCmd(c tea.Cmd) {
+	if c == nil {
+		return
+	}
+	if m.pendingCmd == nil {
+		m.pendingCmd = c
+		return
+	}
+	m.pendingCmd = tea.Batch(m.pendingCmd, c)
+}
+
+func (m *Model) takePending() tea.Cmd {
+	c := m.pendingCmd
+	m.pendingCmd = nil
+	return c
 }
 
 func (m Model) startAutoSpectate() tea.Cmd {
@@ -152,6 +190,25 @@ func (m Model) startAutoSpectate() tea.Cmd {
 type autoSpectateMsg struct{}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	var c tea.Cmd
+
+	// Keep running widgets alive regardless of phase.
+	m.spin, c = m.spin.Update(msg)
+	if c != nil {
+		cmds = append(cmds, c)
+	}
+	if m.cdOn {
+		m.cdTimer, c = m.cdTimer.Update(msg)
+		if c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	m.stopwatch, c = m.stopwatch.Update(msg)
+	if c != nil {
+		cmds = append(cmds, c)
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 {
@@ -160,7 +217,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Height > 0 {
 			m.height = msg.Height
 		}
-		return m, nil
+		m.help.SetWidth(max(20, m.width-4))
+		m.chatVP.SetWidth(min(48, max(20, m.width-8)))
+		m.tipList.SetWidth(min(36, max(20, m.width-8)))
+		m.podiumTable.SetWidth(min(48, max(24, m.width-8)))
+		return m, tea.Batch(cmds...)
 
 	case tickMsg:
 		m.now = time.Time(msg)
@@ -185,26 +246,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.stepShake()
 		m.stepRaceBars()
-		return m, tea.Batch(m.nextTickCmd(), extra)
+		cmds = append(cmds, m.nextTickCmd(), extra, m.takePending())
+		return m, tea.Batch(cmds...)
 
 	case roastMsg:
 		m.roastLoading = false
 		m.roastText = msg.text
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case tipMsg:
 		m.tipLoadingDone(msg)
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case autoSpectateMsg:
 		if m.hub == nil {
-			return m, nil
+			return m, tea.Batch(cmds...)
 		}
 		v, err := m.hub.SpectateLive(m.playerID, m.playerName, m.now)
 		if err != nil {
 			m.statusErr = err.Error()
 			m.phase = phaseMultiMenu
-			return m, nil
+			return m, tea.Batch(cmds...)
 		}
 		m.roomCode = v.Code
 		m.multiView = v
@@ -212,22 +274,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.raceStarted = false
 		m.sess = nil
 		m.applyMultiView(v)
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case tea.KeyPressMsg:
 		next, cmd := m.handleKey(msg)
 		nm, ok := next.(Model)
 		if !ok {
-			return next, cmd
+			return next, tea.Batch(append(cmds, cmd)...)
 		}
 		if nm.phase == phaseTyping && nm.sess != nil {
 			nm.caretOn = true
 			nm.blinkTicks = 0
 			nm.stepCaret()
 		}
-		return nm, cmd
+		return nm, tea.Batch(append(cmds, cmd, nm.takePending())...)
 	}
-	return m, nil
+	return m, tea.Batch(append(cmds, m.takePending())...)
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -286,7 +348,7 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cfg.Mode = game.ModeQuotes
 		m.focus = focusValue
 	case "enter", "space":
-		m.startTest()
+		return m, m.startTest()
 	case "m":
 		if m.multiEnabled() {
 			m.statusErr = ""
@@ -401,7 +463,8 @@ func (m *Model) tipLoadingDone(msg tipMsg) {
 	}
 }
 
-func (m *Model) startTest() {
+// startTest begins a solo session.
+func (m *Model) startTest() tea.Cmd {
 	seed := uint64(0)
 	if m.cfg.Daily {
 		seed = words.DailySeed(time.Now())
@@ -415,6 +478,7 @@ func (m *Model) startTest() {
 	m.roastText = ""
 	m.roastLoading = false
 	m.clearTip()
+	return m.startRaceStopwatch()
 }
 
 // finishSolo moves to results and kicks off an async roast.
@@ -427,7 +491,8 @@ func (m *Model) finishSolo() tea.Cmd {
 	m.roastText = ""
 	m.roastLoading = true
 	m.clearTip()
-	return m.roastCmd()
+	stop := m.stopRaceStopwatch()
+	return tea.Batch(stop, m.roastCmd(), m.spin.Tick)
 }
 
 func (m Model) roastCmd() tea.Cmd {
@@ -477,8 +542,7 @@ func (m Model) updateTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.roomCode != "" {
 			return m, nil // no solo restart mid-race
 		}
-		m.startTest()
-		return m, nil
+		return m, m.startTest()
 	case "ctrl+c":
 		m.leaveMulti()
 		return m, tea.Quit
@@ -525,14 +589,17 @@ func (m Model) updateResult(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return m, tea.Quit
 	case "tab", "enter":
-		m.startTest()
+		return m, m.startTest()
 	case "t":
 		if ln.Configured() {
 			m.tipPhase = tipPick
 			m.tipErr = ""
 			m.tipBolt11 = ""
 			m.tipQR = ""
+			m.tipList = newTipList()
+			m.tipList.Select(m.tipAmountIdx)
 		}
+		return m, nil
 	case "esc":
 		m.phase = phaseConfig
 		m.sess = nil
@@ -702,11 +769,7 @@ func (m Model) viewConfig() string {
 		b.WriteString(m.sty.Main.Render("off"))
 	}
 	b.WriteString("\n\n")
-	if m.multiEnabled() {
-		b.WriteString(m.sty.Sub.Render("↑↓ change  tab focus  enter start  m multi  p theme  v voice  n ninja  y daily  g ghost  t/w/o mode  q quit"))
-	} else {
-		b.WriteString(m.sty.Sub.Render("↑↓ change  tab focus  enter start  p theme  v voice  n ninja  y daily  g ghost  t/w/o mode  q quit"))
-	}
+	b.WriteString(m.renderHelp(m.helpConfig()))
 	return b.String()
 }
 
@@ -726,6 +789,9 @@ func (m Model) viewTyping() string {
 		hud += m.sty.Sub.Render(" wpm")
 		hud += "  " + m.sty.StatValue.Render(fmt.Sprintf("%.0f%%", snap.Accuracy))
 		hud += m.sty.Sub.Render(" acc")
+		if m.stopwatch.Running() {
+			hud += "  " + m.sty.Sub.Render(m.stopwatch.View())
+		}
 		if m.ghostOn && len(m.paceGhost) > 0 {
 			hud += "  " + m.sty.Sub.Render("ghost")
 		}
@@ -742,10 +808,10 @@ func (m Model) viewTyping() string {
 	if m.roomCode != "" {
 		b.WriteString(m.viewRaceOpponents())
 		b.WriteString("\n")
-		b.WriteString(m.sty.Sub.Render("esc leave race"))
+		b.WriteString(m.renderHelp(helpTyping(true)))
 	} else {
 		b.WriteString("\n\n")
-		b.WriteString(m.sty.Sub.Render("tab restart  esc menu"))
+		b.WriteString(m.renderHelp(helpTyping(false)))
 	}
 	return b.String()
 }
@@ -926,21 +992,17 @@ func (m Model) viewResult() string {
 	b.WriteString("\n")
 	switch {
 	case m.roastLoading && m.roastText == "":
+		msg := "sharpening insults…"
 		if m.voice == roast.VoiceStoic {
-			b.WriteString(m.sty.Sub.Render("consulting the porch…"))
-		} else {
-			b.WriteString(m.sty.Sub.Render("sharpening insults…"))
+			msg = "consulting the porch…"
 		}
+		b.WriteString(m.sty.Sub.Render(m.spin.View() + " " + msg))
 	case m.roastText != "":
 		b.WriteString(m.sty.Text.Render(lipgloss.NewStyle().Width(chartW).Render(m.roastText)))
 	}
 	b.WriteString("\n\n")
 	b.WriteString(m.sty.Sub.Render(invite.RaceMe(snap.WPM)))
 	b.WriteString("\n\n")
-	if ln.Configured() {
-		b.WriteString(m.sty.Sub.Render("tab/enter again  t tip  esc menu  q quit"))
-	} else {
-		b.WriteString(m.sty.Sub.Render("tab/enter again  esc menu  q quit"))
-	}
+	b.WriteString(m.renderHelp(helpResult(ln.Configured())))
 	return b.String()
 }

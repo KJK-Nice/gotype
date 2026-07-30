@@ -31,9 +31,10 @@ func (m Model) updateMultiMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.phase = phaseLobby
 		m.multiView = v
 	case "j":
-		m.joinInput = ""
+		m.joinTI.SetValue("")
 		m.statusErr = ""
 		m.phase = phaseJoin
+		return m, m.joinTI.Focus()
 	case "d":
 		v, err := m.hub.SpectateLive(m.playerID, m.playerName, m.now)
 		if err != nil {
@@ -54,14 +55,17 @@ func (m Model) updateJoin(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.phase = phaseMultiMenu
-		m.joinInput = ""
+		m.joinTI.Blur()
+		m.joinTI.SetValue("")
 		m.statusErr = ""
+		return m, nil
 	case "enter":
-		if len(m.joinInput) < 4 {
+		code := strings.ToUpper(strings.TrimSpace(m.joinTI.Value()))
+		if len(code) < 4 {
 			m.statusErr = "need 4-letter code"
 			return m, nil
 		}
-		v, err := m.hub.Join(m.playerID, m.playerName, m.joinInput)
+		v, err := m.hub.Join(m.playerID, m.playerName, code)
 		if err != nil {
 			m.statusErr = err.Error()
 			return m, nil
@@ -71,29 +75,18 @@ func (m Model) updateJoin(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.multiView = v
 		m.raceStarted = false
 		m.sess = nil
+		m.joinTI.Blur()
 		m.applyMultiView(v)
-	case "backspace":
-		if len(m.joinInput) > 0 {
-			m.joinInput = m.joinInput[:len(m.joinInput)-1]
-		}
-	default:
-		text := msg.Text
-		if text == "" && len(msg.String()) == 1 {
-			text = msg.String()
-		}
-		for _, r := range text {
-			if len(m.joinInput) >= 4 {
-				break
-			}
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-				if r >= 'a' {
-					r -= 'a' - 'A'
-				}
-				m.joinInput += string(r)
-			}
-		}
+		return m, nil
 	}
-	return m, nil
+	var cmd tea.Cmd
+	m.joinTI, cmd = m.joinTI.Update(msg)
+	// Force uppercase letters for room codes.
+	v := strings.ToUpper(m.joinTI.Value())
+	if v != m.joinTI.Value() {
+		m.joinTI.SetValue(v)
+	}
+	return m, cmd
 }
 
 func (m Model) updateSpectate(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -111,8 +104,9 @@ func (m Model) updateSpectate(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.sendChat("gg")
 	case "/":
 		m.chatMode = true
-		m.chatInput = ""
+		m.chatTI.SetValue("")
 		m.statusErr = ""
+		return m, m.chatTI.Focus()
 	}
 	return m, nil
 }
@@ -154,8 +148,9 @@ func (m Model) updateLobby(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.sendChat("gg")
 	case "/":
 		m.chatMode = true
-		m.chatInput = ""
+		m.chatTI.SetValue("")
 		m.statusErr = ""
+		return m, m.chatTI.Focus()
 	default:
 		if m.multiView.Phase == multi.PhaseCountdown {
 			m.statusErr = "wait for countdown"
@@ -195,8 +190,9 @@ func (m Model) updatePodium(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.sendChat("gg")
 	case "/":
 		m.chatMode = true
-		m.chatInput = ""
+		m.chatTI.SetValue("")
 		m.statusErr = ""
+		return m, m.chatTI.Focus()
 	}
 	return m, nil
 }
@@ -205,33 +201,22 @@ func (m Model) updateChat(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.chatMode = false
-		m.chatInput = ""
+		m.chatTI.Blur()
+		m.chatTI.SetValue("")
+		return m, nil
 	case "enter":
-		text := m.chatInput
+		text := strings.TrimSpace(m.chatTI.Value())
 		m.chatMode = false
-		m.chatInput = ""
+		m.chatTI.Blur()
+		m.chatTI.SetValue("")
 		if text == "" {
 			return m, nil
 		}
 		return m.sendChat(text)
-	case "backspace":
-		if len(m.chatInput) > 0 {
-			r := []rune(m.chatInput)
-			m.chatInput = string(r[:len(r)-1])
-		}
-	default:
-		text := msg.Text
-		if text == "" && len(msg.String()) == 1 {
-			text = msg.String()
-		}
-		for _, r := range text {
-			if len([]rune(m.chatInput)) >= 48 {
-				break
-			}
-			m.chatInput += string(r)
-		}
 	}
-	return m, nil
+	var cmd tea.Cmd
+	m.chatTI, cmd = m.chatTI.Update(msg)
+	return m, cmd
 }
 
 func (m Model) sendChat(text string) (tea.Model, tea.Cmd) {
@@ -253,9 +238,12 @@ func (m *Model) leaveMulti() {
 	m.multiView = multi.View{}
 	m.raceStarted = false
 	m.statusErr = ""
-	m.joinInput = ""
 	m.chatMode = false
-	m.chatInput = ""
+	m.chatTI.Blur()
+	m.chatTI.SetValue("")
+	m.joinTI.Blur()
+	m.joinTI.SetValue("")
+	m.stopCountdownTimer()
 	m.resetMotion()
 }
 
@@ -296,12 +284,24 @@ func (m *Model) maybeSyncMulti(force bool) {
 }
 
 func (m *Model) applyMultiView(v multi.View) {
+	m.syncChatViewport()
+
+	if v.Phase == multi.PhaseCountdown {
+		if !m.cdOn {
+			m.queueCmd(m.startCountdownTimer(v.CountdownLeft))
+		}
+	} else {
+		m.stopCountdownTimer()
+	}
+
 	if v.YouAreSpectator {
 		switch v.Phase {
 		case multi.PhaseDone:
 			m.sess = nil
 			m.raceStarted = false
 			m.phase = phasePodium
+			m.syncPodiumTable()
+			m.queueCmd(m.stopRaceStopwatch())
 		default:
 			m.sess = nil
 			m.raceStarted = false
@@ -341,6 +341,7 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.shake = spring1D{}
 			m.resetCaret()
 			m.phase = phaseTyping
+			m.queueCmd(m.startRaceStopwatch())
 		}
 	case multi.PhaseDone:
 		if m.sess != nil && !m.sess.Finished {
@@ -351,6 +352,8 @@ func (m *Model) applyMultiView(v multi.View) {
 		}
 		m.ghostRec = nil
 		m.phase = phasePodium
+		m.syncPodiumTable()
+		m.queueCmd(m.stopRaceStopwatch())
 	}
 }
 
@@ -373,7 +376,7 @@ func (m Model) viewMultiMenu() string {
 		b.WriteString(m.sty.Incorrect.Render(m.statusErr))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(m.sty.Sub.Render("esc back  q quit"))
+	b.WriteString(m.renderHelp(helpMultiMenu()))
 	return b.String()
 }
 
@@ -382,29 +385,24 @@ func (m Model) viewJoin() string {
 	b.WriteString(m.sty.Title.Render("join room"))
 	b.WriteString("\n\n")
 	b.WriteString(m.sty.Sub.Render("code  "))
-	pad := m.joinInput + strings.Repeat("_", 4-len(m.joinInput))
-	b.WriteString(m.sty.Main.Render(pad))
+	b.WriteString(m.sty.Main.Render(m.joinTI.View()))
 	b.WriteString("\n\n")
 	if m.statusErr != "" {
 		b.WriteString(m.sty.Incorrect.Render(m.statusErr))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(m.sty.Sub.Render("enter join  esc back"))
+	b.WriteString(m.renderHelp(helpJoin()))
 	return b.String()
 }
 
 func (m Model) viewChat() string {
-	v := m.multiView
 	var b strings.Builder
-	if len(v.Chat) > 0 {
-		for _, line := range v.Chat {
-			b.WriteString(m.sty.Sub.Render(line.Name + ": "))
-			b.WriteString(m.sty.Text.Render(line.Text))
-			b.WriteString("\n")
-		}
+	if m.chatVP.TotalLineCount() > 0 {
+		b.WriteString(m.chatVP.View())
+		b.WriteString("\n")
 	}
 	if m.chatMode {
-		b.WriteString(m.sty.Main.Render("> " + m.chatInput + "█"))
+		b.WriteString(m.sty.Main.Render(m.chatTI.View()))
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -437,10 +435,6 @@ func (m Model) viewLobby() string {
 	b.WriteString("\n")
 
 	if v.Phase == multi.PhaseCountdown {
-		sec := int(v.CountdownLeft.Seconds() + 0.999)
-		if sec < 0 {
-			sec = 0
-		}
 		next := v.RaceNumber + 1
 		if next < 1 {
 			next = 1
@@ -451,7 +445,15 @@ func (m Model) viewLobby() string {
 		}
 		b.WriteString(m.sty.Main.Render(banner))
 		b.WriteString("\n")
-		b.WriteString(m.sty.Main.Render(fmt.Sprintf("starting in %d…", sec)))
+		cd := m.cdTimer.View()
+		if !m.cdOn {
+			sec := int(v.CountdownLeft.Seconds() + 0.999)
+			if sec < 0 {
+				sec = 0
+			}
+			cd = fmt.Sprintf("%ds", sec)
+		}
+		b.WriteString(m.sty.Main.Render("starting in " + cd))
 		b.WriteString("\n\n")
 	}
 
@@ -497,13 +499,9 @@ func (m Model) viewLobby() string {
 		b.WriteString("\n")
 	}
 	if m.chatMode {
-		b.WriteString(m.sty.Sub.Render("enter send  esc cancel"))
-	} else if v.YouAreHost && v.Phase == multi.PhaseLobby {
-		b.WriteString(m.sty.Sub.Render("s start  g gg  / chat  esc leave"))
-	} else if v.Phase == multi.PhaseCountdown {
-		b.WriteString(m.sty.Sub.Render("get ready…"))
+		b.WriteString(m.renderHelp(helpChat()))
 	} else {
-		b.WriteString(m.sty.Sub.Render("waiting  g gg  / chat  esc leave"))
+		b.WriteString(m.renderHelp(helpLobby(v.YouAreHost && v.Phase == multi.PhaseLobby, v.Phase == multi.PhaseCountdown)))
 	}
 	return b.String()
 }
@@ -596,31 +594,9 @@ func (m Model) viewPodium() string {
 		}
 	}
 	b.WriteString("\n")
-	for _, p := range v.Players {
-		if p.Spectator {
-			line := fmt.Sprintf(" ·  %-9s watching", truncateName(p.Name, 9))
-			b.WriteString(m.sty.Sub.Render(line))
-			b.WriteString("\n")
-			continue
-		}
-		medal := fmt.Sprintf("%d.", p.Rank)
-		acc := fmt.Sprintf("%3.0f%%", p.Prog.Accuracy)
-		if p.Prog.Chars == 0 && p.Prog.Correct == 0 {
-			acc = "  —"
-		}
-		crown := " "
-		if p.Crown {
-			crown = "👑"
-		}
-		line := fmt.Sprintf("%-3s%s %-9s %5.0f wpm %s  %d/%d",
-			medal, crown, truncateName(p.Name, 9), p.Prog.WPM, acc, p.MatchWins, multi.WinsToTakeMatch)
-		if p.You {
-			b.WriteString(m.sty.Main.Render(line))
-		} else {
-			b.WriteString(m.sty.Text.Render(line))
-		}
-		b.WriteString("\n")
-	}
+	m.syncPodiumTable()
+	b.WriteString(m.podiumTable.View())
+	b.WriteString("\n")
 	if m.sess != nil {
 		snap := m.sess.Snapshot(m.now)
 		b.WriteString("\n")
@@ -636,15 +612,9 @@ func (m Model) viewPodium() string {
 	b.WriteString(m.sty.Main.Render(invite.BeatMe(v.Code)))
 	b.WriteString("\n")
 	if m.chatMode {
-		b.WriteString(m.sty.Sub.Render("enter send  esc cancel"))
-	} else if v.YouAreSpectator {
-		b.WriteString(m.sty.Sub.Render("watching · g gg  / chat  esc leave"))
-	} else if v.MatchOver {
-		b.WriteString(m.sty.Sub.Render("enter new series  g gg  / chat  esc leave"))
-	} else if v.MatchPoint {
-		b.WriteString(m.sty.Sub.Render("enter MATCH POINT  g gg  / chat  esc leave"))
+		b.WriteString(m.renderHelp(helpChat()))
 	} else {
-		b.WriteString(m.sty.Sub.Render("enter next race  g gg  / chat  esc leave"))
+		b.WriteString(m.renderHelp(helpPodium(v.YouAreSpectator, v.MatchOver, v.MatchPoint)))
 	}
 	return b.String()
 }
@@ -658,11 +628,15 @@ func (m Model) viewSpectate() string {
 	b.WriteString("\n")
 	switch v.Phase {
 	case multi.PhaseCountdown:
-		sec := int(v.CountdownLeft.Seconds()) + 1
-		if sec < 0 {
-			sec = 0
+		cd := m.cdTimer.View()
+		if !m.cdOn {
+			sec := int(v.CountdownLeft.Seconds() + 0.999)
+			if sec < 0 {
+				sec = 0
+			}
+			cd = fmt.Sprintf("%ds", sec)
 		}
-		b.WriteString(m.sty.Main.Render(fmt.Sprintf("starting in %d…", sec)))
+		b.WriteString(m.sty.Main.Render("starting in " + cd))
 	case multi.PhaseRacing:
 		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("%.0fs left", v.RaceRemaining.Seconds())))
 	case multi.PhaseLobby:
@@ -677,9 +651,9 @@ func (m Model) viewSpectate() string {
 	b.WriteString(m.sty.Main.Render(invite.BeatMe(v.Code)))
 	b.WriteString("\n")
 	if m.chatMode {
-		b.WriteString(m.sty.Sub.Render("enter send  esc cancel"))
+		b.WriteString(m.renderHelp(helpChat()))
 	} else {
-		b.WriteString(m.sty.Sub.Render("watching · g gg  / chat  esc leave"))
+		b.WriteString(m.renderHelp(helpSpectate()))
 	}
 	return b.String()
 }

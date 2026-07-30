@@ -36,6 +36,9 @@ func (m *Model) clearTip() {
 
 func (m Model) tipSats() int {
 	amts := ln.DefaultAmounts
+	if item, ok := m.tipList.SelectedItem().(tipItem); ok {
+		return item.sats
+	}
 	if m.tipAmountIdx < 0 || m.tipAmountIdx >= len(amts) {
 		return amts[0]
 	}
@@ -49,21 +52,17 @@ func (m Model) updateTip(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.clearTip()
 			return m, nil
-		case "left", "h", "up", "k":
-			if m.tipAmountIdx > 0 {
-				m.tipAmountIdx--
-			}
-		case "right", "l", "down", "j":
-			if m.tipAmountIdx < len(ln.DefaultAmounts)-1 {
-				m.tipAmountIdx++
-			}
 		case "enter", " ":
+			m.tipAmountIdx = m.tipList.Index()
 			m.tipPhase = tipLoading
 			m.tipErr = ""
-			return m, m.tipInvoiceCmd()
+			return m, tea.Batch(m.tipInvoiceCmd(), m.spin.Tick)
 		case "q":
 			return m, tea.Quit
 		}
+		var cmd tea.Cmd
+		m.tipList, cmd = m.tipList.Update(msg)
+		return m, cmd
 	case tipLoading:
 		switch msg.String() {
 		case "esc":
@@ -111,30 +110,18 @@ func (m Model) viewTip() string {
 
 	switch m.tipPhase {
 	case tipPick:
-		b.WriteString(m.sty.Sub.Render("amount "))
-		for i, sats := range ln.DefaultAmounts {
-			label := fmt.Sprintf("%d", sats)
-			if i == m.tipAmountIdx {
-				b.WriteString(m.sty.Selected.Render(label))
-			} else {
-				b.WriteString(m.sty.Option.Render(label))
-			}
-			if i < len(ln.DefaultAmounts)-1 {
-				b.WriteString(" ")
-			}
-		}
-		b.WriteString(m.sty.Sub.Render(" sats"))
-		b.WriteString("\n\n")
-		b.WriteString(m.sty.Sub.Render("←→ amount  enter invoice  esc back"))
+		b.WriteString(m.tipList.View())
+		b.WriteString("\n")
+		b.WriteString(m.renderHelp(helpTipPick()))
 	case tipLoading:
-		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("fetching %d sat invoice…", m.tipSats())))
+		b.WriteString(m.sty.Sub.Render(m.spin.View() + fmt.Sprintf(" fetching %d sat invoice…", m.tipSats())))
 		b.WriteString("\n\n")
-		b.WriteString(m.sty.Sub.Render("esc cancel"))
+		b.WriteString(m.renderHelp(helpTipLoading()))
 	case tipShow:
 		if m.tipErr != "" {
 			b.WriteString(m.sty.Incorrect.Render(m.tipErr))
 			b.WriteString("\n\n")
-			b.WriteString(m.sty.Sub.Render("esc back"))
+			b.WriteString(m.renderHelp(helpTipShow()))
 			return b.String()
 		}
 		b.WriteString(m.sty.Main.Render(fmt.Sprintf("%d sats", m.tipSats())))
@@ -147,7 +134,7 @@ func (m Model) viewTip() string {
 		}
 		b.WriteString(m.sty.Sub.Render(ln.ShortBolt11(m.tipBolt11)))
 		b.WriteString("\n\n")
-		b.WriteString(m.sty.Sub.Render("esc/enter back"))
+		b.WriteString(m.renderHelp(helpTipShow()))
 	}
 	return b.String()
 }
