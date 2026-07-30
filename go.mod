@@ -8,6 +8,7 @@ require (
 	charm.land/log/v2 v2.0.0
 	charm.land/wish/v2 v2.0.1
 	github.com/NimbleMarkets/ntcharts/v2 v2.0.3
+	github.com/charmbracelet/harmonica v0.2.0
 	github.com/charmbracelet/ssh v0.0.0-20250826160808-ebfa259c7309
 	github.com/mdp/qrterminal/v3 v3.2.1
 	golang.org/x/crypto v0.54.0

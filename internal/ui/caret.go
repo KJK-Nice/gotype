@@ -5,19 +5,28 @@ import (
 	"time"
 
 	"charm.land/bubbletea/v2"
+	"github.com/charmbracelet/harmonica"
 
 	"github.com/kjkusap/monkeytype-clone/internal/multi"
 )
 
 const (
-	tickFast   = 33 * time.Millisecond  // ninja lerp / trail
-	tickActive = 100 * time.Millisecond // typing, countdown, racing spectate
-	tickIdle   = 250 * time.Millisecond // menus / results / idle lobby
-	multiPoll  = 100 * time.Millisecond // hub sync cadence over SSH
-	caretLerp  = 0.42
+	tickFast     = 33 * time.Millisecond // ninja spring / trail (~30fps)
+	tickActive   = 100 * time.Millisecond
+	tickIdle     = 250 * time.Millisecond
+	multiPoll    = 100 * time.Millisecond
 	trailMaxLife = 6
 	blinkEvery   = 530 * time.Millisecond
+
+	// Spring tuned for char-index motion: snappy with a soft overshoot.
+	caretSpringFreq = 9.0
+	caretSpringDamp = 0.62
+	caretSettlePos  = 0.04
+	caretSettleVel  = 0.08
 )
+
+// caretSpring matches tickFast (~30fps). Reused; harmonica.Spring is a value type.
+var caretSpring = harmonica.NewSpring(harmonica.FPS(30), caretSpringFreq, caretSpringDamp)
 
 func tickCmd() tea.Cmd {
 	return tickAfter(tickIdle)
@@ -70,7 +79,7 @@ func (m Model) caretAnimating() bool {
 		return false
 	}
 	target := float64(m.sess.CursorPos())
-	if math.Abs(m.caretX-target) >= 0.05 {
+	if math.Abs(m.caretX-target) >= caretSettlePos || math.Abs(m.caretVel) >= caretSettleVel {
 		return true
 	}
 	return len(m.trail) > 0
@@ -78,6 +87,7 @@ func (m Model) caretAnimating() bool {
 
 func (m *Model) resetCaret() {
 	m.caretX = 0
+	m.caretVel = 0
 	m.caretReady = false
 	m.caretOn = true
 	m.blinkTicks = 0
@@ -85,7 +95,7 @@ func (m *Model) resetCaret() {
 	m.trail = nil
 }
 
-// stepCaret lerps the visual caret toward the logical cursor and leaves a fading trail.
+// stepCaret springs the visual caret toward the logical cursor and leaves a fading trail.
 func (m *Model) stepCaret() {
 	if m.sess == nil {
 		return
@@ -93,6 +103,7 @@ func (m *Model) stepCaret() {
 	target := float64(m.sess.CursorPos())
 	if !m.ninjaCaret {
 		m.caretX = target
+		m.caretVel = 0
 		m.caretReady = true
 		m.trail = nil
 		m.stepBlink(true)
@@ -100,16 +111,16 @@ func (m *Model) stepCaret() {
 	}
 	if !m.caretReady {
 		m.caretX = target
+		m.caretVel = 0
 		m.caretReady = true
 		return
 	}
 
 	prev := m.caretX
-	diff := target - m.caretX
-	if math.Abs(diff) < 0.05 {
+	m.caretX, m.caretVel = caretSpring.Update(m.caretX, m.caretVel, target)
+	if math.Abs(m.caretX-target) < caretSettlePos && math.Abs(m.caretVel) < caretSettleVel {
 		m.caretX = target
-	} else {
-		m.caretX += diff * caretLerp
+		m.caretVel = 0
 	}
 
 	// Paint trail along the path the caret swept this frame (Neovide/ninja ghost).
@@ -136,8 +147,7 @@ func (m *Model) stepCaret() {
 		m.trail[pos] = life - 1
 	}
 
-	// Blink only while idle (cursor settled).
-	idle := math.Abs(m.caretX-target) < 0.05
+	idle := math.Abs(m.caretX-target) < caretSettlePos && math.Abs(m.caretVel) < caretSettleVel
 	m.stepBlink(idle)
 }
 

@@ -56,6 +56,7 @@ type Model struct {
 	caretOn    bool
 	blinkTicks int
 	caretX     float64
+	caretVel   float64 // harmonica spring velocity (ninja caret)
 	caretReady bool
 	trail      map[int]int // index → remaining trail life
 	lastBlink  time.Time
@@ -298,6 +299,7 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.ninjaCaret = !m.ninjaCaret
 		if !m.ninjaCaret {
 			m.trail = nil
+			m.caretVel = 0
 			if m.sess != nil {
 				m.caretX = float64(m.sess.CursorPos())
 			}
