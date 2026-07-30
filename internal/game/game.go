@@ -14,13 +14,23 @@ type Mode int
 const (
 	ModeTime Mode = iota
 	ModeWords
+	ModeQuotes
 )
 
 func (m Mode) String() string {
-	if m == ModeWords {
+	switch m {
+	case ModeWords:
 		return "words"
+	case ModeQuotes:
+		return "quote"
+	default:
+		return "time"
 	}
-	return "time"
+}
+
+// EndsOnPrompt is true when the test ends after finishing the prompt (words/quote).
+func (m Mode) EndsOnPrompt() bool {
+	return m == ModeWords || m == ModeQuotes
 }
 
 // Config holds test settings chosen on the menu.
@@ -28,12 +38,15 @@ type Config struct {
 	Mode      Mode
 	Duration  time.Duration // time mode
 	WordCount int           // words mode
+	QuoteLen  words.QuoteLen
+	Daily     bool // UTC daily seed — same prompt worldwide today
 }
 
 var (
-	TimeOptions   = []time.Duration{15 * time.Second, 30 * time.Second, 60 * time.Second, 120 * time.Second}
-	WordOptions   = []int{10, 25, 50, 100}
-	DefaultConfig = Config{Mode: ModeTime, Duration: 30 * time.Second, WordCount: 25}
+	TimeOptions     = []time.Duration{15 * time.Second, 30 * time.Second, 60 * time.Second, 120 * time.Second}
+	WordOptions     = []int{10, 25, 50, 100}
+	QuoteLenOptions = []words.QuoteLen{words.QuoteShort, words.QuoteMedium, words.QuoteLong}
+	DefaultConfig   = Config{Mode: ModeTime, Duration: 30 * time.Second, WordCount: 25, QuoteLen: words.QuoteShort}
 )
 
 // CharState is the display state of one target character.
@@ -70,28 +83,44 @@ type Session struct {
 	History      []stats.Point   // WPM samples for result chart
 	Errors       []time.Duration // error timestamps for chart dots
 	lastSampleAt time.Time
+
+	QuoteAuthor string // set in quote mode
 }
 
 func NewSession(cfg Config) *Session {
 	return NewSessionSeeded(cfg, 0)
 }
 
-// NewSessionSeeded builds a session. If seed != 0, the word list is deterministic.
+// NewSessionSeeded builds a session. If seed != 0, the prompt is deterministic.
 func NewSessionSeeded(cfg Config, seed uint64) *Session {
-	n := cfg.WordCount
-	if cfg.Mode == ModeTime {
-		n = 200
-	}
 	var w []string
-	if seed != 0 {
-		w = words.GenerateWithSeed(words.English, n, seed)
-	} else {
-		w = words.Generate(words.English, n)
+	author := ""
+	switch cfg.Mode {
+	case ModeQuotes:
+		q := words.PickQuote(cfg.QuoteLen, seed)
+		w = q.Words()
+		author = q.Author
+		cfg.WordCount = len(w)
+	case ModeTime:
+		n := 200
+		if seed != 0 {
+			w = words.GenerateWithSeed(words.English, n, seed)
+		} else {
+			w = words.Generate(words.English, n)
+		}
+	default:
+		n := cfg.WordCount
+		if seed != 0 {
+			w = words.GenerateWithSeed(words.English, n, seed)
+		} else {
+			w = words.Generate(words.English, n)
+		}
 	}
 	s := &Session{
-		Config: cfg,
-		Words:  w,
-		Typed:  make([][]rune, len(w)),
+		Config:      cfg,
+		Words:       w,
+		Typed:       make([][]rune, len(w)),
+		QuoteAuthor: author,
 	}
 	s.rebuildChars()
 	return s
@@ -227,7 +256,7 @@ func (s *Session) HandleSpace(now time.Time) {
 	}
 
 	if s.WordIdx >= len(s.Words)-1 {
-		if s.Config.Mode == ModeWords {
+		if s.Config.Mode.EndsOnPrompt() {
 			s.finish(now)
 		}
 		return
@@ -237,7 +266,7 @@ func (s *Session) HandleSpace(now time.Time) {
 	s.CharIdx = 0
 	s.rebuildChars()
 
-	if s.Config.Mode == ModeWords && s.WordIdx >= s.Config.WordCount {
+	if s.Config.Mode.EndsOnPrompt() && s.WordIdx >= s.Config.WordCount {
 		s.finish(now)
 	}
 }
@@ -274,7 +303,7 @@ func (s *Session) HandleBackspace(now time.Time) {
 }
 
 func (s *Session) checkWordComplete(now time.Time) {
-	if s.Config.Mode != ModeWords {
+	if !s.Config.Mode.EndsOnPrompt() {
 		return
 	}
 	// Auto-finish when last word fully correct (optional nicety).

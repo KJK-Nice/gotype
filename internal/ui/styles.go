@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+)
 
 // Theme is a named color pack for the TUI.
 type Theme struct {
@@ -22,36 +26,28 @@ var themes = []Theme{
 	{Name: "dracula", Bg: "#282a36", Main: "#bd93f9", Text: "#f8f8f2", Sub: "#6272a4", Error: "#ff5555", Extra: "#aa3333", Ghost: "#4a3a6a"},
 }
 
-var (
-	colBg    lipgloss.Color
-	colMain  lipgloss.Color
-	colText  lipgloss.Color
-	colSub   lipgloss.Color
-	colError lipgloss.Color
-	colExtra lipgloss.Color
-	colCaret lipgloss.Color
-	colGhost lipgloss.Color
+// Styles holds per-user lipgloss styles (not process-global).
+type Styles struct {
+	Title     lipgloss.Style
+	Sub       lipgloss.Style
+	Text      lipgloss.Style
+	Main      lipgloss.Style
+	Correct   lipgloss.Style
+	Incorrect lipgloss.Style
+	ErrorDot  lipgloss.Style
+	Extra     lipgloss.Style
+	Pending   lipgloss.Style
+	Caret     lipgloss.Style
+	Ghost     lipgloss.Style
+	Selected  lipgloss.Style
+	Option    lipgloss.Style
+	StatValue lipgloss.Style
+	StatLabel lipgloss.Style
+	Box       lipgloss.Style
 
-	styleTitle     lipgloss.Style
-	styleSub       lipgloss.Style
-	styleText      lipgloss.Style
-	styleMain      lipgloss.Style
-	styleCorrect   lipgloss.Style
-	styleIncorrect lipgloss.Style
-	styleErrorDot  lipgloss.Style
-	styleExtra     lipgloss.Style
-	stylePending   lipgloss.Style
-	styleCaret     lipgloss.Style
-	styleGhost     lipgloss.Style
-	styleSelected  lipgloss.Style
-	styleOption    lipgloss.Style
-	styleStatValue lipgloss.Style
-	styleStatLabel lipgloss.Style
-	styleBox       lipgloss.Style
-)
-
-func init() {
-	ApplyTheme(0)
+	main  color.Color
+	sub   color.Color
+	ghost color.Color
 }
 
 func ThemeName(i int) string {
@@ -61,52 +57,58 @@ func ThemeName(i int) string {
 	return themes[i].Name
 }
 
-// ApplyTheme rebuilds lipgloss styles for theme index.
-func ApplyTheme(idx int) {
+func ThemeCount() int { return len(themes) }
+
+// NewStyles builds an independent style set for one session/user.
+func NewStyles(idx int) Styles {
 	if idx < 0 {
 		idx = 0
 	}
 	idx %= len(themes)
 	t := themes[idx]
 
-	colBg = lipgloss.Color(t.Bg)
-	colMain = lipgloss.Color(t.Main)
-	colText = lipgloss.Color(t.Text)
-	colSub = lipgloss.Color(t.Sub)
-	colError = lipgloss.Color(t.Error)
-	colExtra = lipgloss.Color(t.Extra)
-	colCaret = lipgloss.Color(t.Main)
-	colGhost = lipgloss.Color(t.Ghost)
+	bg := lipgloss.Color(t.Bg)
+	main := lipgloss.Color(t.Main)
+	text := lipgloss.Color(t.Text)
+	sub := lipgloss.Color(t.Sub)
+	errc := lipgloss.Color(t.Error)
+	extra := lipgloss.Color(t.Extra)
+	ghost := lipgloss.Color(t.Ghost)
 
-	styleTitle = lipgloss.NewStyle().Foreground(colMain).Bold(true)
-	styleSub = lipgloss.NewStyle().Foreground(colSub)
-	styleText = lipgloss.NewStyle().Foreground(colText)
-	styleMain = lipgloss.NewStyle().Foreground(colMain).Bold(true)
-	styleCorrect = lipgloss.NewStyle().Foreground(colText)
-	styleIncorrect = lipgloss.NewStyle().Foreground(colError).Underline(true)
-	styleErrorDot = lipgloss.NewStyle().Foreground(colError).Bold(true)
-	styleExtra = lipgloss.NewStyle().Foreground(colExtra).Underline(true)
-	stylePending = lipgloss.NewStyle().Foreground(colSub)
-	styleCaret = lipgloss.NewStyle().Foreground(colBg).Background(colCaret)
-	styleGhost = lipgloss.NewStyle().Foreground(colSub).Background(colGhost)
-	styleSelected = lipgloss.NewStyle().Foreground(colBg).Background(colMain).Padding(0, 1)
-	styleOption = lipgloss.NewStyle().Foreground(colSub).Padding(0, 1)
-	styleStatValue = lipgloss.NewStyle().Foreground(colMain).Bold(true)
-	styleStatLabel = lipgloss.NewStyle().Foreground(colSub)
-	styleBox = lipgloss.NewStyle().Padding(1, 2)
-}
-
-func trailBackground(life int) lipgloss.Color {
-	switch {
-	case life >= 5:
-		return colMain
-	case life >= 3:
-		return colGhost
-	default:
-		return colSub
+	return Styles{
+		Title:     lipgloss.NewStyle().Foreground(main).Bold(true),
+		Sub:       lipgloss.NewStyle().Foreground(sub),
+		Text:      lipgloss.NewStyle().Foreground(text),
+		Main:      lipgloss.NewStyle().Foreground(main).Bold(true),
+		Correct:   lipgloss.NewStyle().Foreground(text),
+		Incorrect: lipgloss.NewStyle().Foreground(errc).Underline(true),
+		ErrorDot:  lipgloss.NewStyle().Foreground(errc).Bold(true),
+		Extra:     lipgloss.NewStyle().Foreground(extra).Underline(true),
+		Pending:   lipgloss.NewStyle().Foreground(sub),
+		Caret:     lipgloss.NewStyle().Foreground(bg).Background(main),
+		Ghost:     lipgloss.NewStyle().Foreground(sub).Background(ghost),
+		Selected:  lipgloss.NewStyle().Foreground(bg).Background(main).Padding(0, 1),
+		Option:    lipgloss.NewStyle().Foreground(sub).Padding(0, 1),
+		StatValue: lipgloss.NewStyle().Foreground(main).Bold(true),
+		StatLabel: lipgloss.NewStyle().Foreground(sub),
+		Box:       lipgloss.NewStyle().Padding(1, 2),
+		main:      main,
+		sub:       sub,
+		ghost:     ghost,
 	}
 }
 
-func styleWithTrail(base lipgloss.Style, life int) lipgloss.Style {
-	return base.Background(trailBackground(life))
+func (s Styles) trailBackground(life int) color.Color {
+	switch {
+	case life >= 5:
+		return s.main
+	case life >= 3:
+		return s.ghost
+	default:
+		return s.sub
+	}
+}
+
+func (s Styles) WithTrail(base lipgloss.Style, life int) lipgloss.Style {
+	return base.Background(s.trailBackground(life))
 }

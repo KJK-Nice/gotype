@@ -6,32 +6,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NimbleMarkets/ntcharts/v2/canvas"
+	"github.com/NimbleMarkets/ntcharts/v2/canvas/runes"
+	"github.com/NimbleMarkets/ntcharts/v2/linechart"
+	wlc "github.com/NimbleMarkets/ntcharts/v2/linechart/wavelinechart"
+
 	"github.com/kjkusap/monkeytype-clone/internal/stats"
 )
 
-const (
-	markWPM   = '━'
-	markRaw   = '·'
-	markConn  = '│'
-	markError = '●'
-)
+const markError = '●'
 
-// RenderChart draws a WPM/raw line chart with error dots.
-// height is plot rows (excluding axis labels).
-func RenderChart(points []stats.Point, errors []time.Duration, width, height int) string {
-	if len(points) == 0 || width < 12 || height < 3 {
-		return styleSub.Render("(no chart data)")
+// RenderChart draws WPM + raw wave lines via ntcharts, with error dots overlaid.
+func RenderChart(sty Styles, points []stats.Point, errors []time.Duration, width, height int) string {
+	if len(points) == 0 || width < 16 || height < 5 {
+		return sty.Sub.Render("(no chart data)")
 	}
-
-	plotW := width - 5 // room for y-axis labels
-	if plotW < 8 {
-		plotW = 8
-	}
-	if height > 12 {
-		height = 12
+	if height > 14 {
+		height = 14
 	}
 
 	maxY := 0.0
+	maxX := 0.0
 	for _, p := range points {
 		if p.WPM > maxY {
 			maxY = p.WPM
@@ -39,186 +34,100 @@ func RenderChart(points []stats.Point, errors []time.Duration, width, height int
 		if p.Raw > maxY {
 			maxY = p.Raw
 		}
+		sec := p.At.Seconds()
+		if sec > maxX {
+			maxX = sec
+		}
 	}
 	if maxY < 10 {
 		maxY = 10
 	}
 	maxY = math.Ceil(maxY/10) * 10
-
-	startAt := points[0].At
-	endAt := points[len(points)-1].At
-	span := endAt - startAt
-	if span <= 0 {
-		span = time.Millisecond
+	if maxX <= 0 {
+		maxX = 1
 	}
 
-	wpmCol := downsample(points, plotW, func(p stats.Point) float64 { return p.WPM })
-	rawCol := downsample(points, plotW, func(p stats.Point) float64 { return p.Raw })
+	chart := wlc.New(width, height,
+		wlc.WithXYRange(0, maxX, 0, maxY),
+	)
+	chart.AxisStyle = sty.Sub
+	chart.LabelStyle = sty.Sub
+	chart.XLabelFormatter = secondsLabelFormatter()
+	chart.YLabelFormatter = linechart.DefaultLabelFormatter()
+	chart.SetXStep(max(1, width/12))
+	chart.SetYStep(2)
 
-	grid := make([][]rune, height)
-	for y := range grid {
-		grid[y] = make([]rune, plotW)
-		for x := range grid[y] {
-			grid[y][x] = ' '
-		}
+	chart.SetStyles(runes.ArcLineStyle, sty.Main.UnsetBold())
+	chart.SetDataSetStyles("raw", runes.ArcLineStyle, sty.Sub)
+
+	for _, p := range points {
+		x := p.At.Seconds()
+		chart.Plot(canvas.Float64Point{X: x, Y: p.WPM})
+		chart.PlotDataSet("raw", canvas.Float64Point{X: x, Y: p.Raw})
 	}
+	chart.DrawAll()
 
-	plotLine(grid, rawCol, maxY, markRaw)
-	plotLine(grid, wpmCol, maxY, markWPM)
-	plotErrors(grid, errors, startAt, span, wpmCol, maxY)
-
-	var b strings.Builder
-	b.WriteString(styleSub.Render("wpm"))
-	b.WriteString(" ")
-	b.WriteString(styleMain.Render(string(markWPM)))
-	b.WriteString("  ")
-	b.WriteString(styleSub.Render("raw"))
-	b.WriteString(" ")
-	b.WriteString(styleSub.Render(string(markRaw)))
-	b.WriteString("  ")
-	b.WriteString(styleSub.Render("err"))
-	b.WriteString(" ")
-	b.WriteString(styleErrorDot.Render(string(markError)))
-	b.WriteString("\n")
-
-	for row := 0; row < height; row++ {
-		yVal := maxY * (1 - float64(row)/float64(height-1))
-		label := fmt.Sprintf("%3.0f", yVal)
-		if row != 0 && row != height-1 {
-			label = "   "
-		}
-		b.WriteString(styleSub.Render(label))
-		b.WriteString(styleSub.Render("│"))
-
-		var colored strings.Builder
-		for _, r := range grid[row] {
-			switch r {
-			case markWPM, markConn:
-				colored.WriteString(styleMain.Render(string(r)))
-			case markRaw:
-				colored.WriteString(styleSub.Render(string(r)))
-			case markError:
-				colored.WriteString(styleErrorDot.Render(string(r)))
-			default:
-				colored.WriteRune(r)
-			}
-		}
-		b.WriteString(colored.String())
-		b.WriteByte('\n')
-	}
-
-	b.WriteString(styleSub.Render("   └"))
-	b.WriteString(styleSub.Render(strings.Repeat("─", plotW)))
-	b.WriteByte('\n')
-
-	first := startAt.Seconds()
-	last := endAt.Seconds()
-	mid := (first + last) / 2
-	var axis string
-	if last < 15 {
-		axis = fmt.Sprintf("    %-6.1f%-6.1f%6.1f", first, mid, last)
-	} else {
-		axis = fmt.Sprintf("    %-6.0f%-6.0f%6.0f", first, mid, last)
-	}
-	b.WriteString(styleSub.Render(axis))
-	b.WriteString(styleSub.Render("s"))
-
-	return b.String()
-}
-
-func downsample(points []stats.Point, n int, get func(stats.Point) float64) []float64 {
-	out := make([]float64, n)
-	if len(points) == 1 {
-		for i := range out {
-			out[i] = get(points[0])
-		}
-		return out
-	}
-	for i := 0; i < n; i++ {
-		t := float64(i) / float64(n-1)
-		idx := t * float64(len(points)-1)
-		lo := int(math.Floor(idx))
-		hi := int(math.Ceil(idx))
-		if hi >= len(points) {
-			hi = len(points) - 1
-		}
-		if lo == hi {
-			out[i] = get(points[lo])
-			continue
-		}
-		frac := idx - float64(lo)
-		out[i] = get(points[lo])*(1-frac) + get(points[hi])*frac
-	}
-	return out
-}
-
-func plotLine(grid [][]rune, values []float64, maxY float64, mark rune) {
-	h := len(grid)
-	if h == 0 || len(values) == 0 || maxY <= 0 {
-		return
-	}
-	prevRow := -1
-	for x, v := range values {
-		if v < 0 {
-			v = 0
-		}
-		row := int(math.Round((1 - v/maxY) * float64(h-1)))
-		if row < 0 {
-			row = 0
-		}
-		if row >= h {
-			row = h - 1
-		}
-		grid[row][x] = mark
-		if prevRow >= 0 && prevRow != row {
-			step := 1
-			if row < prevRow {
-				step = -1
-			}
-			for r := prevRow + step; r != row; r += step {
-				if grid[r][x] == ' ' {
-					grid[r][x] = markConn
-				}
-			}
-		}
-		prevRow = row
-	}
-}
-
-// plotErrors places red dots at the WPM height for each error time.
-func plotErrors(grid [][]rune, errors []time.Duration, startAt, span time.Duration, wpmCol []float64, maxY float64) {
-	h := len(grid)
-	plotW := len(grid[0])
-	if h == 0 || plotW == 0 || len(errors) == 0 || span <= 0 {
-		return
-	}
+	// Error markers on top of wave (Y = WPM at that instant).
 	for _, at := range errors {
-		t := float64(at-startAt) / float64(span)
-		if t < 0 {
-			t = 0
-		}
-		if t > 1 {
-			t = 1
-		}
-		x := int(math.Round(t * float64(plotW-1)))
+		x := at.Seconds()
 		if x < 0 {
 			x = 0
 		}
-		if x >= plotW {
-			x = plotW - 1
+		if x > maxX {
+			x = maxX
 		}
+		y := wpmAt(points, at)
+		if y < 0 {
+			y = 0
+		}
+		if y > maxY {
+			y = maxY
+		}
+		chart.DrawRuneWithStyle(canvas.Float64Point{X: x, Y: y}, markError, sty.ErrorDot)
+	}
 
-		v := 0.0
-		if x < len(wpmCol) {
-			v = wpmCol[x]
+	var b strings.Builder
+	b.WriteString(sty.Sub.Render("wpm "))
+	b.WriteString(sty.Main.Render("━"))
+	b.WriteString(sty.Sub.Render("  raw "))
+	b.WriteString(sty.Sub.Render("·"))
+	b.WriteString(sty.Sub.Render("  err "))
+	b.WriteString(sty.ErrorDot.Render(string(markError)))
+	b.WriteString("\n")
+	b.WriteString(chart.View())
+	return b.String()
+}
+
+func wpmAt(points []stats.Point, at time.Duration) float64 {
+	if len(points) == 0 {
+		return 0
+	}
+	if at <= points[0].At {
+		return points[0].WPM
+	}
+	last := points[len(points)-1]
+	if at >= last.At {
+		return last.WPM
+	}
+	for i := 1; i < len(points); i++ {
+		a, b := points[i-1], points[i]
+		if at <= b.At {
+			span := float64(b.At - a.At)
+			if span <= 0 {
+				return b.WPM
+			}
+			t := float64(at-a.At) / span
+			return a.WPM*(1-t) + b.WPM*t
 		}
-		row := int(math.Round((1 - v/maxY) * float64(h-1)))
-		if row < 0 {
-			row = 0
+	}
+	return last.WPM
+}
+
+func secondsLabelFormatter() linechart.LabelFormatter {
+	return func(_ int, v float64) string {
+		if v < 10 {
+			return fmt.Sprintf("%.1f", v)
 		}
-		if row >= h {
-			row = h - 1
-		}
-		grid[row][x] = markError
+		return fmt.Sprintf("%.0f", v)
 	}
 }

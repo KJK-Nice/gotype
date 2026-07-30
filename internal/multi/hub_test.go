@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kjkusap/monkeytype-clone/internal/game"
+	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
 
 func TestCreateJoinStartRace(t *testing.T) {
@@ -133,7 +134,54 @@ func TestBestOf3(t *testing.T) {
 	if !d2.MatchOver || d2.MatchWinnerName != "alice" {
 		t.Fatalf("matchOver=%v winner=%q", d2.MatchOver, d2.MatchWinnerName)
 	}
+	if d2.RaceNumber != 2 {
+		t.Fatalf("races=%d", d2.RaceNumber)
+	}
+	if d2.MatchPoint {
+		t.Fatal("match point should be clear when match over")
+	}
 	_ = v
+}
+
+func TestDailySeedOnStart(t *testing.T) {
+	h := NewHub()
+	cfg := game.DefaultConfig
+	cfg.Daily = true
+	a, b := NewPlayerID(), NewPlayerID()
+	va, _ := h.Create(a, "alice", cfg)
+	_, _ = h.Join(b, "bob", va.Code)
+	now := time.Date(2026, 7, 29, 15, 0, 0, 0, time.UTC)
+	vs, err := h.Start(a, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := words.DailySeed(now)
+	if vs.Seed != want {
+		t.Fatalf("seed=%d want %d", vs.Seed, want)
+	}
+}
+
+func TestMatchPointAfterFirstWin(t *testing.T) {
+	h := NewHub()
+	cfg := game.Config{Mode: game.ModeTime, Duration: 10 * time.Second}
+	a, b := NewPlayerID(), NewPlayerID()
+	va, _ := h.Create(a, "alice", cfg)
+	_, _ = h.Join(b, "bob", va.Code)
+	t0 := time.Now()
+	_, _ = h.Start(a, t0)
+	_ = h.Snapshot(a, t0.Add(4*time.Second))
+	h.Report(a, Progress{WPM: 90, Chars: 20, Correct: 20, Done: true}, t0.Add(5*time.Second))
+	h.Report(b, Progress{WPM: 40, Chars: 10, Correct: 10, Done: true}, t0.Add(5*time.Second))
+	d1 := h.Snapshot(a, t0.Add(5*time.Second))
+	if d1.MatchOver {
+		t.Fatal("should not be over")
+	}
+	if !d1.MatchPoint {
+		t.Fatal("alice should create match point")
+	}
+	if d1.RaceNumber != 1 || d1.RaceWinnerName != "alice" {
+		t.Fatalf("race=%d winner=%q", d1.RaceNumber, d1.RaceWinnerName)
+	}
 }
 
 func TestJoinDuringPodium(t *testing.T) {
@@ -178,8 +226,51 @@ func TestChatGG(t *testing.T) {
 	_ = va
 }
 
+func TestJoinDuringRaceSpectates(t *testing.T) {
+	h := NewHub()
+	cfg := game.Config{Mode: game.ModeTime, Duration: 30 * time.Second}
+	a, b, c := NewPlayerID(), NewPlayerID(), NewPlayerID()
+	va, _ := h.Create(a, "alice", cfg)
+	_, _ = h.Join(b, "bob", va.Code)
+	now := time.Now()
+	_, _ = h.Start(a, now)
+	_ = h.Snapshot(a, now.Add(4*time.Second))
+
+	vc, err := h.Join(c, "carol", va.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vc.YouAreSpectator {
+		t.Fatal("expected spectator")
+	}
+	if vc.Phase != PhaseRacing {
+		t.Fatalf("phase=%v", vc.Phase)
+	}
+}
+
+func TestSpectateLiveDemo(t *testing.T) {
+	h := NewHub()
+	now := time.Now()
+	id := NewPlayerID()
+	v, err := h.SpectateLive(id, "viewer", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Code != DemoCode {
+		t.Fatalf("code=%s", v.Code)
+	}
+	if !v.YouAreSpectator {
+		t.Fatal("expected spectator")
+	}
+	live := h.Snapshot(id, now.Add(5*time.Second))
+	if live.Phase != PhaseRacing && live.Phase != PhaseCountdown {
+		t.Fatalf("phase=%v", live.Phase)
+	}
+}
+
 func TestNormalizeChat(t *testing.T) {
 	if normalizeChat("/glhf") != "glhf" {
 		t.Fatal(normalizeChat("/glhf"))
 	}
 }
+

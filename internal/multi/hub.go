@@ -11,13 +11,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/kjkusap/monkeytype-clone/internal/game"
+	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
 
 const (
 	MaxPlayers      = 4
+	MaxSpectators   = 12
 	MinPlayers      = 2
 	CountdownSecs   = 3
 	WinsToTakeMatch = 2 // best-of-3
+	DemoCode        = "DEMO"
 	codeAlphabet    = "ABCDEFGHJKLMNPQRSTUVWXYZ"
 	codeLen         = 4
 	maxChatLines    = 6
@@ -60,14 +63,17 @@ type ChatLine struct {
 }
 
 type Player struct {
-	ID        string
-	Name      string
-	IsHost    bool
-	Ready     bool
-	Prog      Progress
-	MatchWins int // series score (best-of-3)
-	Streak    int // consecutive race wins
-	JoinedAt  time.Time
+	ID         string
+	Name       string
+	IsHost     bool
+	Ready      bool
+	Spectator  bool
+	Bot        bool
+	BotWPM     float64 // target pace for demo bots
+	Prog       Progress
+	MatchWins  int // series score (best-of-3)
+	Streak     int // consecutive race wins
+	JoinedAt   time.Time
 }
 
 type Room struct {
@@ -81,39 +87,47 @@ type Room struct {
 	RaceStarted   time.Time
 	RaceEnds      time.Time
 	Scored        bool // awarded this race already
-	MatchOver     bool
-	MatchWinnerID string
-	Chat          []ChatLine
+	MatchOver       bool
+	MatchWinnerID   string
+	LastRaceWinnerID string
+	RacesPlayed     int // finished races in this series
+	Chat            []ChatLine
 }
 
 type PlayerView struct {
-	ID        string
-	Name      string
-	IsHost    bool
-	Ready     bool
-	Prog      Progress
-	You       bool
-	Rank      int
-	MatchWins int
-	Streak    int
-	Crown     bool // streak > 0
+	ID         string
+	Name       string
+	IsHost     bool
+	Ready      bool
+	Spectator  bool
+	Bot        bool
+	Prog       Progress
+	You        bool
+	Rank       int
+	MatchWins  int
+	Streak     int
+	Crown      bool // streak > 0
 }
 
 type View struct {
-	Code            string
-	Phase           Phase
-	Config          game.Config
-	Seed            uint64
-	HostID          string
-	YouAreHost      bool
-	Players         []PlayerView
-	CountdownLeft   time.Duration
-	RaceRemaining   time.Duration
-	RaceStarted     time.Time
-	MatchOver       bool
-	MatchWinnerName string
-	Chat            []ChatLine
-	Err             string
+	Code             string
+	Phase            Phase
+	Config           game.Config
+	Seed             uint64
+	HostID           string
+	YouAreHost       bool
+	YouAreSpectator  bool
+	Players          []PlayerView
+	CountdownLeft    time.Duration
+	RaceRemaining    time.Duration
+	RaceStarted      time.Time
+	MatchOver        bool
+	MatchWinnerName  string
+	RaceNumber       int  // finished races this series (1 after first podium)
+	RaceWinnerName   string
+	MatchPoint       bool // someone is one win from taking the series
+	Chat             []ChatLine
+	Err              string
 }
 
 var (
@@ -125,6 +139,7 @@ var (
 	ErrBadPhase      = errors.New("room not in lobby")
 	ErrNotDone       = errors.New("race not finished")
 	ErrEmptyChat     = errors.New("empty message")
+	ErrNoLiveRace    = errors.New("no live race")
 )
 
 // Hub is an in-process multiplayer matchmaker (one Railway replica).
@@ -187,28 +202,61 @@ func (h *Hub) Join(playerID, name, code string) (View, error) {
 	if !ok {
 		return View{}, ErrRoomNotFound
 	}
-	if room.Phase != PhaseLobby && room.Phase != PhaseDone {
+	now := time.Now()
+	h.tickBotsLocked(room, now)
+	h.advanceLocked(room, now)
+
+	spectate := room.Phase == PhaseCountdown || room.Phase == PhaseRacing
+	if spectate {
+		if spectatorCountLocked(room) >= MaxSpectators {
+			return View{}, ErrRoomFull
+		}
+	} else if room.Phase != PhaseLobby && room.Phase != PhaseDone {
 		return View{}, ErrBadPhase
-	}
-	if len(room.Players) >= MaxPlayers {
+	} else if racerCountLocked(room) >= MaxPlayers {
 		return View{}, ErrRoomFull
 	}
+
 	if name == "" {
 		name = "player"
 	}
-	for _, p := range room.Players {
-		if p.Name == name {
-			name = fmt.Sprintf("%s_%s", name, playerID[:4])
-			break
-		}
-	}
+	name = uniqueNameLocked(room, name, playerID)
 	room.Players[playerID] = &Player{
-		ID:       playerID,
-		Name:     name,
-		JoinedAt: time.Now(),
+		ID:        playerID,
+		Name:      name,
+		Spectator: spectate,
+		JoinedAt:  now,
 	}
 	h.byPlayer[playerID] = code
-	return h.viewLocked(room, playerID, time.Now()), nil
+	return h.viewLocked(room, playerID, now), nil
+}
+
+// SpectateLive joins the busiest live race as a spectator, or the looping DEMO room.
+func (h *Hub) SpectateLive(playerID, name string, now time.Time) (View, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.byPlayer[playerID]; ok {
+		return View{}, ErrAlreadyInRoom
+	}
+	room := h.pickLiveRoomLocked(now)
+	if room == nil {
+		room = h.ensureDemoLocked(now)
+	}
+	if spectatorCountLocked(room) >= MaxSpectators {
+		return View{}, ErrRoomFull
+	}
+	if name == "" {
+		name = "viewer"
+	}
+	name = uniqueNameLocked(room, name, playerID)
+	room.Players[playerID] = &Player{
+		ID:        playerID,
+		Name:      name,
+		Spectator: true,
+		JoinedAt:  now,
+	}
+	h.byPlayer[playerID] = room.Code
+	return h.viewLocked(room, playerID, now), nil
 }
 
 func (h *Hub) Leave(playerID string) {
@@ -228,11 +276,25 @@ func (h *Hub) Leave(playerID string) {
 		delete(h.rooms, code)
 		return
 	}
+	if room.Code != DemoCode && humanCountLocked(room) == 0 {
+		delete(h.rooms, code)
+		return
+	}
 	if room.HostID == playerID {
 		var next *Player
 		for _, p := range room.Players {
+			if p.Spectator || p.Bot {
+				continue
+			}
 			if next == nil || p.JoinedAt.Before(next.JoinedAt) {
 				next = p
+			}
+		}
+		if next == nil {
+			for _, p := range room.Players {
+				if next == nil || p.JoinedAt.Before(next.JoinedAt) {
+					next = p
+				}
 			}
 		}
 		if next != nil {
@@ -255,12 +317,18 @@ func (h *Hub) Start(playerID string, now time.Time) (View, error) {
 	if room.Phase != PhaseLobby {
 		return View{}, ErrBadPhase
 	}
-	if len(room.Players) < MinPlayers {
+	if racerCountLocked(room) < MinPlayers {
 		return View{}, ErrNotEnough
 	}
-	seed, err := randomSeed()
-	if err != nil {
-		return View{}, err
+	var seed uint64
+	if room.Config.Daily {
+		seed = words.DailySeed(now)
+	} else {
+		var err error
+		seed, err = randomSeed()
+		if err != nil {
+			return View{}, err
+		}
 	}
 	room.Seed = seed
 	room.Phase = PhaseCountdown
@@ -287,6 +355,8 @@ func (h *Hub) Rematch(playerID string, now time.Time) (View, error) {
 		}
 		room.MatchOver = false
 		room.MatchWinnerID = ""
+		room.LastRaceWinnerID = ""
+		room.RacesPlayed = 0
 	}
 	room.Phase = PhaseLobby
 	room.Seed = 0
@@ -330,9 +400,10 @@ func (h *Hub) Report(playerID string, prog Progress, now time.Time) View {
 	if err != nil {
 		return View{Err: err.Error()}
 	}
-	if p := room.Players[playerID]; p != nil {
+	if p := room.Players[playerID]; p != nil && !p.Spectator {
 		p.Prog = prog
 	}
+	h.tickBotsLocked(room, now)
 	h.advanceLocked(room, now)
 	return h.viewLocked(room, playerID, now)
 }
@@ -344,6 +415,7 @@ func (h *Hub) Snapshot(playerID string, now time.Time) View {
 	if err != nil {
 		return View{Err: err.Error()}
 	}
+	h.tickBotsLocked(room, now)
 	h.advanceLocked(room, now)
 	return h.viewLocked(room, playerID, now)
 }
@@ -354,7 +426,7 @@ func (h *Hub) advanceLocked(room *Room, now time.Time) {
 		if !now.Before(room.CountdownEnds) {
 			room.Phase = PhaseRacing
 			room.RaceStarted = room.CountdownEnds
-			if room.Config.Mode == game.ModeWords {
+			if room.Config.Mode.EndsOnPrompt() {
 				room.RaceEnds = room.RaceStarted.Add(24 * time.Hour)
 			} else {
 				room.RaceEnds = room.RaceStarted.Add(room.Config.Duration)
@@ -362,18 +434,35 @@ func (h *Hub) advanceLocked(room *Room, now time.Time) {
 		}
 	case PhaseRacing:
 		allDone := true
+		anyRacer := false
 		for _, p := range room.Players {
+			if p.Spectator {
+				continue
+			}
+			anyRacer = true
 			if !p.Prog.Done {
 				allDone = false
 				break
 			}
 		}
+		if !anyRacer {
+			allDone = false
+		}
 		if allDone || !now.Before(room.RaceEnds) {
 			room.Phase = PhaseDone
 			for _, p := range room.Players {
-				p.Prog.Done = true
+				if !p.Spectator {
+					p.Prog.Done = true
+				}
 			}
 			h.awardRaceLocked(room)
+		}
+	case PhaseDone:
+		if room.Code == DemoCode {
+			// loop DEMO forever for creators filming
+			if now.After(room.RaceEnds.Add(2 * time.Second)) {
+				h.resetDemoLocked(room, now)
+			}
 		}
 	}
 }
@@ -383,9 +472,13 @@ func (h *Hub) awardRaceLocked(room *Room) {
 		return
 	}
 	room.Scored = true
+	room.RacesPlayed++
 
 	var winner *Player
 	for _, p := range room.Players {
+		if p.Spectator {
+			continue
+		}
 		if p.Prog.Chars == 0 && p.Prog.Correct == 0 {
 			continue
 		}
@@ -393,10 +486,15 @@ func (h *Hub) awardRaceLocked(room *Room) {
 			winner = p
 		}
 	}
+	room.LastRaceWinnerID = ""
 	for _, p := range room.Players {
+		if p.Spectator {
+			continue
+		}
 		if winner != nil && p.ID == winner.ID {
 			p.Streak++
 			p.MatchWins++
+			room.LastRaceWinnerID = winner.ID
 		} else {
 			p.Streak = 0
 		}
@@ -420,6 +518,7 @@ func (h *Hub) roomForLocked(playerID string) (*Room, error) {
 }
 
 func (h *Hub) viewLocked(room *Room, playerID string, now time.Time) View {
+	you := room.Players[playerID]
 	players := make([]PlayerView, 0, len(room.Players))
 	for _, p := range room.Players {
 		players = append(players, PlayerView{
@@ -427,6 +526,8 @@ func (h *Hub) viewLocked(room *Room, playerID string, now time.Time) View {
 			Name:      p.Name,
 			IsHost:    p.ID == room.HostID,
 			Ready:     p.Ready,
+			Spectator: p.Spectator,
+			Bot:       p.Bot,
 			Prog:      p.Prog,
 			You:       p.ID == playerID,
 			MatchWins: p.MatchWins,
@@ -435,6 +536,9 @@ func (h *Hub) viewLocked(room *Room, playerID string, now time.Time) View {
 		})
 	}
 	sort.Slice(players, func(i, j int) bool {
+		if players[i].Spectator != players[j].Spectator {
+			return !players[i].Spectator
+		}
 		if room.Phase == PhaseDone || room.Phase == PhaseRacing {
 			if players[i].Prog.WPM != players[j].Prog.WPM {
 				return players[i].Prog.WPM > players[j].Prog.WPM
@@ -445,24 +549,48 @@ func (h *Hub) viewLocked(room *Room, playerID string, now time.Time) View {
 		}
 		return players[i].Name < players[j].Name
 	})
+	rank := 0
 	for i := range players {
-		players[i].Rank = i + 1
+		if players[i].Spectator {
+			players[i].Rank = 0
+			continue
+		}
+		rank++
+		players[i].Rank = rank
 	}
 
 	v := View{
-		Code:       room.Code,
-		Phase:      room.Phase,
-		Config:     room.Config,
-		Seed:       room.Seed,
-		HostID:     room.HostID,
-		YouAreHost: room.HostID == playerID,
-		Players:    players,
-		MatchOver:  room.MatchOver,
-		Chat:       append([]ChatLine(nil), room.Chat...),
+		Code:            room.Code,
+		Phase:           room.Phase,
+		Config:          room.Config,
+		Seed:            room.Seed,
+		HostID:          room.HostID,
+		YouAreHost:      room.HostID == playerID,
+		YouAreSpectator: you != nil && you.Spectator,
+		Players:         players,
+		MatchOver:       room.MatchOver,
+		RaceNumber:      room.RacesPlayed,
+		Chat:            append([]ChatLine(nil), room.Chat...),
 	}
 	if room.MatchWinnerID != "" {
 		if p := room.Players[room.MatchWinnerID]; p != nil {
 			v.MatchWinnerName = p.Name
+		}
+	}
+	if room.LastRaceWinnerID != "" {
+		if p := room.Players[room.LastRaceWinnerID]; p != nil {
+			v.RaceWinnerName = p.Name
+		}
+	}
+	if !room.MatchOver {
+		for _, p := range room.Players {
+			if p.Spectator {
+				continue
+			}
+			if p.MatchWins == WinsToTakeMatch-1 {
+				v.MatchPoint = true
+				break
+			}
 		}
 	}
 	switch room.Phase {
@@ -531,6 +659,182 @@ func randomSeed() (uint64, error) {
 		seed = 1
 	}
 	return seed, nil
+}
+
+func uniqueNameLocked(room *Room, name, playerID string) string {
+	for _, p := range room.Players {
+		if p.Name == name {
+			suffix := playerID
+			if len(suffix) > 4 {
+				suffix = suffix[:4]
+			}
+			return fmt.Sprintf("%s_%s", name, suffix)
+		}
+	}
+	return name
+}
+
+func racerCountLocked(room *Room) int {
+	n := 0
+	for _, p := range room.Players {
+		if !p.Spectator {
+			n++
+		}
+	}
+	return n
+}
+
+func spectatorCountLocked(room *Room) int {
+	n := 0
+	for _, p := range room.Players {
+		if p.Spectator {
+			n++
+		}
+	}
+	return n
+}
+
+func botCountLocked(room *Room) int {
+	n := 0
+	for _, p := range room.Players {
+		if p.Bot {
+			n++
+		}
+	}
+	return n
+}
+
+func humanCountLocked(room *Room) int {
+	n := 0
+	for _, p := range room.Players {
+		if !p.Bot {
+			n++
+		}
+	}
+	return n
+}
+
+func (h *Hub) pickLiveRoomLocked(now time.Time) *Room {
+	var best *Room
+	bestN := -1
+	for _, room := range h.rooms {
+		if room.Code == DemoCode {
+			continue
+		}
+		h.tickBotsLocked(room, now)
+		h.advanceLocked(room, now)
+		if room.Phase != PhaseRacing && room.Phase != PhaseCountdown {
+			continue
+		}
+		n := racerCountLocked(room)
+		if n > bestN {
+			best = room
+			bestN = n
+		}
+	}
+	return best
+}
+
+func (h *Hub) ensureDemoLocked(now time.Time) *Room {
+	if room, ok := h.rooms[DemoCode]; ok {
+		h.tickBotsLocked(room, now)
+		h.advanceLocked(room, now)
+		return room
+	}
+	cfg := game.Config{Mode: game.ModeTime, Duration: 30 * time.Second, WordCount: 25}
+	seed, err := randomSeed()
+	if err != nil {
+		seed = 1
+	}
+	botA := &Player{
+		ID: "bot-neon", Name: "neon", IsHost: true, Bot: true, BotWPM: 92,
+		JoinedAt: now,
+	}
+	botB := &Player{
+		ID: "bot-pixel", Name: "pixel", Bot: true, BotWPM: 78,
+		JoinedAt: now.Add(time.Millisecond),
+	}
+	room := &Room{
+		Code:          DemoCode,
+		Config:        cfg,
+		Seed:          seed,
+		HostID:        botA.ID,
+		Phase:         PhaseCountdown,
+		CountdownEnds: now.Add(CountdownSecs * time.Second),
+		Players: map[string]*Player{
+			botA.ID: botA,
+			botB.ID: botB,
+		},
+	}
+	h.rooms[DemoCode] = room
+	return room
+}
+
+func (h *Hub) resetDemoLocked(room *Room, now time.Time) {
+	seed, err := randomSeed()
+	if err != nil {
+		seed = room.Seed + 1
+	}
+	room.Seed = seed
+	room.Phase = PhaseCountdown
+	room.CountdownEnds = now.Add(CountdownSecs * time.Second)
+	room.RaceStarted = time.Time{}
+	room.RaceEnds = time.Time{}
+	room.Scored = false
+	room.MatchOver = false
+	room.MatchWinnerID = ""
+	for _, p := range room.Players {
+		p.Prog = Progress{}
+		p.Ready = false
+		if p.Bot {
+			p.MatchWins = 0
+			p.Streak = 0
+		}
+	}
+}
+
+func (h *Hub) tickBotsLocked(room *Room, now time.Time) {
+	if room.Phase != PhaseRacing {
+		return
+	}
+	elapsed := now.Sub(room.RaceStarted).Seconds()
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	dur := room.Config.Duration.Seconds()
+	if dur < 1 {
+		dur = 30
+	}
+	// ~5 chars per word
+	for _, p := range room.Players {
+		if !p.Bot || p.Spectator {
+			continue
+		}
+		wpm := p.BotWPM
+		if wpm < 1 {
+			wpm = 70
+		}
+		chars := int(wpm * 5 * elapsed / 60)
+		target := int(wpm * 5 * dur / 60)
+		if chars > target {
+			chars = target
+		}
+		done := elapsed >= dur || chars >= target
+		acc := 97.0
+		if p.Name == "pixel" {
+			acc = 94.0
+		}
+		p.Prog = Progress{
+			WPM:      wpm * (0.85 + 0.15*(elapsed/dur)),
+			Accuracy: acc,
+			Correct:  chars,
+			Chars:    chars,
+			Done:     done,
+		}
+		if done && p.Prog.WPM < wpm*0.9 {
+			p.Prog.WPM = wpm
+		}
+	}
 }
 
 func normalizeChat(text string) string {

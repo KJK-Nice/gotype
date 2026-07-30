@@ -3,6 +3,8 @@ package game
 import (
 	"testing"
 	"time"
+
+	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
 
 func TestHandleRuneAndSpace(t *testing.T) {
@@ -46,6 +48,31 @@ func TestSampleHistory(t *testing.T) {
 	s.finish(now.Add(500 * time.Millisecond))
 	if len(s.History) < 3 {
 		t.Fatalf("History len = %d, want >= 3 (subsecond samples)", len(s.History))
+	}
+}
+
+func TestQuoteModeSession(t *testing.T) {
+	s := NewSessionSeeded(Config{Mode: ModeQuotes, QuoteLen: words.QuoteShort}, 7)
+	if s.QuoteAuthor == "" {
+		t.Fatal("expected quote author")
+	}
+	if len(s.Words) < 3 {
+		t.Fatalf("words = %d", len(s.Words))
+	}
+	if s.Config.WordCount != len(s.Words) {
+		t.Fatalf("WordCount = %d, want %d", s.Config.WordCount, len(s.Words))
+	}
+	now := time.Now()
+	for wi, w := range s.Words {
+		for _, r := range w {
+			s.HandleRune(r, now)
+		}
+		if wi < len(s.Words)-1 {
+			s.HandleSpace(now)
+		}
+	}
+	if !s.Finished {
+		t.Fatal("expected quote race to finish")
 	}
 }
 

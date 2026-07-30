@@ -4,19 +4,76 @@ import (
 	"math"
 	"time"
 
-	"github.com/charmbracelet/bubbletea"
+	"charm.land/bubbletea/v2"
+
+	"github.com/kjkusap/monkeytype-clone/internal/multi"
 )
 
 const (
-	tickInterval = 33 * time.Millisecond
-	caretLerp    = 0.42
+	tickFast   = 33 * time.Millisecond  // ninja lerp / trail
+	tickActive = 100 * time.Millisecond // typing, countdown, racing spectate
+	tickIdle   = 250 * time.Millisecond // menus / results / idle lobby
+	multiPoll  = 100 * time.Millisecond // hub sync cadence over SSH
+	caretLerp  = 0.42
 	trailMaxLife = 6
+	blinkEvery   = 530 * time.Millisecond
 )
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(tickInterval, func(t time.Time) tea.Msg {
+	return tickAfter(tickIdle)
+}
+
+func tickAfter(d time.Duration) tea.Cmd {
+	if d < tickFast {
+		d = tickFast
+	}
+	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+func (m Model) nextTickCmd() tea.Cmd {
+	return tickAfter(m.tickInterval())
+}
+
+// tickInterval picks a redraw cadence that stays light over SSH.
+func (m Model) tickInterval() time.Duration {
+	switch m.phase {
+	case phaseTyping:
+		if m.ninjaCaret && m.caretAnimating() {
+			return tickFast
+		}
+		return tickActive
+	case phaseSpectate:
+		if m.multiView.Phase == multi.PhaseRacing || m.multiView.Phase == multi.PhaseCountdown {
+			return tickActive
+		}
+		return tickIdle
+	case phaseLobby:
+		if m.multiView.Phase == multi.PhaseCountdown {
+			return tickActive
+		}
+		return tickIdle
+	case phasePodium:
+		// DEMO loops; keep a light poll
+		if m.roomCode == multi.DemoCode {
+			return tickActive
+		}
+		return tickIdle
+	default:
+		return tickIdle
+	}
+}
+
+func (m Model) caretAnimating() bool {
+	if m.sess == nil {
+		return false
+	}
+	target := float64(m.sess.CursorPos())
+	if math.Abs(m.caretX-target) >= 0.05 {
+		return true
+	}
+	return len(m.trail) > 0
 }
 
 func (m *Model) resetCaret() {
@@ -24,6 +81,7 @@ func (m *Model) resetCaret() {
 	m.caretReady = false
 	m.caretOn = true
 	m.blinkTicks = 0
+	m.lastBlink = time.Time{}
 	m.trail = nil
 }
 
@@ -33,6 +91,13 @@ func (m *Model) stepCaret() {
 		return
 	}
 	target := float64(m.sess.CursorPos())
+	if !m.ninjaCaret {
+		m.caretX = target
+		m.caretReady = true
+		m.trail = nil
+		m.stepBlink(true)
+		return
+	}
 	if !m.caretReady {
 		m.caretX = target
 		m.caretReady = true
@@ -73,16 +138,22 @@ func (m *Model) stepCaret() {
 
 	// Blink only while idle (cursor settled).
 	idle := math.Abs(m.caretX-target) < 0.05
-	if idle {
-		m.blinkTicks++
-		// ~530ms at 33ms ticks.
-		if m.blinkTicks >= 16 {
-			m.blinkTicks = 0
-			m.caretOn = !m.caretOn
-		}
-	} else {
+	m.stepBlink(idle)
+}
+
+func (m *Model) stepBlink(idle bool) {
+	if !idle {
 		m.caretOn = true
-		m.blinkTicks = 0
+		m.lastBlink = m.now
+		return
+	}
+	if m.lastBlink.IsZero() {
+		m.lastBlink = m.now
+		return
+	}
+	if m.now.Sub(m.lastBlink) >= blinkEvery {
+		m.caretOn = !m.caretOn
+		m.lastBlink = m.now
 	}
 }
 

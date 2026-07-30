@@ -14,6 +14,7 @@ RUN apk add --no-cache ca-certificates \
 WORKDIR /app
 COPY --from=build /out/gotype-ssh /app/gotype-ssh
 USER app
-ENV PORT=2222
-EXPOSE 2222
+ENV PORT=8080
+ENV SSH_PORT=2222
+EXPOSE 8080 2222
 CMD ["./gotype-ssh"]
