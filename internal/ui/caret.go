@@ -47,6 +47,9 @@ func (m Model) nextTickCmd() tea.Cmd {
 
 // tickInterval picks a redraw cadence that stays light over SSH.
 func (m Model) tickInterval() time.Duration {
+	if m.shakeAnimating() || m.barsAnimating() {
+		return tickFast
+	}
 	switch m.phase {
 	case phaseTyping:
 		if m.ninjaCaret && m.caretAnimating() {

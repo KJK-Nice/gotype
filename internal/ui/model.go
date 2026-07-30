@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -61,6 +62,9 @@ type Model struct {
 	trail      map[int]int // index → remaining trail life
 	lastBlink  time.Time
 	lastMulti  time.Time // throttle hub sync over SSH
+
+	shake   spring1D            // error screen shake (cells)
+	barFill map[string]spring1D // playerID → race bar fill (0..raceBarWidth)
 
 	hub         *multi.Hub
 	playerID    string
@@ -179,6 +183,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCaret()
 			}
 		}
+		m.stepShake()
+		m.stepRaceBars()
 		return m, tea.Batch(m.nextTickCmd(), extra)
 
 	case roastMsg:
@@ -404,6 +410,7 @@ func (m *Model) startTest() {
 	m.phase = phaseTyping
 	m.now = time.Now()
 	m.resetCaret()
+	m.shake = spring1D{}
 	m.ghostRec = nil
 	m.roastText = ""
 	m.roastLoading = false
@@ -452,6 +459,9 @@ func (m Model) updateTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	errN := len(m.sess.Errors)
+	finished := false
+	var finishCmd tea.Cmd
 	switch msg.String() {
 	case "esc":
 		if m.roomCode != "" {
@@ -477,11 +487,7 @@ func (m Model) updateTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "space":
 		m.sess.HandleSpace(m.now)
 		if m.sess.Finished {
-			if m.roomCode != "" {
-				m.syncMulti()
-			} else {
-				return m, m.finishSolo()
-			}
+			finished = true
 		}
 	default:
 		text := msg.Text
@@ -491,19 +497,24 @@ func (m Model) updateTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		for _, r := range text {
 			m.sess.HandleRune(r, m.now)
 			if m.sess.Finished {
-				if m.roomCode != "" {
-					m.syncMulti()
-				} else {
-					return m, m.finishSolo()
-				}
+				finished = true
 				break
 			}
 		}
 	}
-	if m.roomCode != "" {
+	if len(m.sess.Errors) > errN {
+		m.triggerShake()
+	}
+	if finished {
+		if m.roomCode != "" {
+			m.syncMulti()
+		} else {
+			finishCmd = m.finishSolo()
+		}
+	} else if m.roomCode != "" {
 		m.maybeSyncMulti(false)
 	}
-	return m, nil
+	return m, finishCmd
 }
 
 func (m Model) updateResult(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -563,7 +574,12 @@ func (m Model) View() tea.View {
 	if h < 1 {
 		h = 24
 	}
-	v := tea.NewView(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content))
+	placed := lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
+	dx := int(math.Round(m.shake.x))
+	if dx != 0 {
+		placed = applyShake(placed, dx)
+	}
+	v := tea.NewView(placed)
 	v.AltScreen = true
 	return v
 }

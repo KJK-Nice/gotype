@@ -256,6 +256,7 @@ func (m *Model) leaveMulti() {
 	m.joinInput = ""
 	m.chatMode = false
 	m.chatInput = ""
+	m.resetMotion()
 }
 
 func (m *Model) syncMulti() {
@@ -336,6 +337,8 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.sess.NoAutoFinish = true
 			m.raceStarted = true
 			m.ghostRec = nil
+			m.barFill = nil
+			m.shake = spring1D{}
 			m.resetCaret()
 			m.phase = phaseTyping
 		}
@@ -544,7 +547,7 @@ func (m Model) viewRaceOpponents() string {
 		b.WriteString(" ")
 		b.WriteString(m.sty.StatValue.Render(fmt.Sprintf("%3.0f", p.Prog.WPM)))
 		b.WriteString(m.sty.Sub.Render(" wpm "))
-		bar := progressBar(p.Prog.Chars, maxChars, 10)
+		bar := m.raceBarFor(p.ID, p.Prog.Chars, maxChars)
 		if p.You {
 			b.WriteString(m.sty.Main.Render(bar))
 		} else {
@@ -704,18 +707,4 @@ func seriesScore(v multi.View) string {
 		}
 	}
 	return fmt.Sprintf("%d–%d", a, b)
-}
-
-func progressBar(cur, max, width int) string {
-	if max < 1 {
-		max = 1
-	}
-	filled := cur * width / max
-	if filled > width {
-		filled = width
-	}
-	if filled < 0 {
-		filled = 0
-	}
-	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
 }
