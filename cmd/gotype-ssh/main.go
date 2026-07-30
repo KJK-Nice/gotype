@@ -169,6 +169,7 @@ pixel  78 wpm ██████░░░░</pre>`
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="description" content="gotype — typing races in your terminal over SSH"/>
 <title>%s</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23141210'%2F%3E%3Ctext x='16' y='23' text-anchor='middle' font-size='20' font-family='IBM%20Plex%20Mono%2Cui-monospace%2Cmonospace' font-weight='700' fill='%23e2b714'%3E%F0%9D%90%A0%3C%2Ftext%3E%3C%2Fsvg%3E"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet"/>
