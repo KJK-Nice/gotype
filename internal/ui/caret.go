@@ -50,6 +50,9 @@ func (m Model) tickInterval() time.Duration {
 	if m.shakeAnimating() || m.barsAnimating() {
 		return tickFast
 	}
+	if m.multiView.Phase == multi.PhaseCountdown {
+		return tickFast // cinematic digit pulse
+	}
 	switch m.phase {
 	case phaseTyping:
 		if m.ninjaCaret && m.caretAnimating() {

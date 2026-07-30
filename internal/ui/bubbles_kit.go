@@ -297,6 +297,7 @@ func (m *Model) initBubbles() {
 	m.spin = newSpinner()
 	m.help = help.New()
 	m.cdTimer = timer.New(multi.CountdownSecs*time.Second, timer.WithInterval(100*time.Millisecond))
+	m.cdDigit = -1
 	m.stopwatch = stopwatch.New(stopwatch.WithInterval(100 * time.Millisecond))
 	m.tipList = newTipList()
 	m.podiumTable = newPodiumTable()
@@ -309,11 +310,15 @@ func (m *Model) startCountdownTimer(left time.Duration) tea.Cmd {
 	}
 	m.cdTimer = timer.New(left, timer.WithInterval(100*time.Millisecond))
 	m.cdOn = true
+	m.cdDigit = -1
+	m.cdPulse = spring1D{}
 	return m.cdTimer.Init()
 }
 
 func (m *Model) stopCountdownTimer() {
 	m.cdOn = false
+	m.cdDigit = -1
+	m.cdPulse = spring1D{}
 }
 
 func (m *Model) startRaceStopwatch() tea.Cmd {

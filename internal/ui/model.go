@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/stopwatch"
 	"charm.land/bubbles/v2/table"
@@ -71,8 +72,9 @@ type Model struct {
 	lastBlink  time.Time
 	lastMulti  time.Time // throttle hub sync over SSH
 
-	shake   spring1D            // error screen shake (cells)
-	barFill map[string]spring1D // playerID → race bar fill (0..raceBarWidth)
+	shake    spring1D                   // error screen shake (cells)
+	raceBars map[string]progress.Model // playerID → animated race bar
+
 
 	hub         *multi.Hub
 	playerID    string
@@ -89,6 +91,8 @@ type Model struct {
 	help        help.Model
 	cdTimer     timer.Model
 	cdOn        bool
+	cdDigit     int      // last cinematic digit (3/2/1/0=GO); -1 idle
+	cdPulse     spring1D // pop intensity on digit change
 	stopwatch   stopwatch.Model
 	tipList     list.Model
 	podiumTable table.Model
@@ -208,8 +212,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if c != nil {
 		cmds = append(cmds, c)
 	}
+	if m.raceBars != nil {
+		for id, bar := range m.raceBars {
+			var bc tea.Cmd
+			bar, bc = bar.Update(msg)
+			m.raceBars[id] = bar
+			if bc != nil {
+				cmds = append(cmds, bc)
+			}
+		}
+	}
 
 	switch msg := msg.(type) {
+	case progress.FrameMsg:
+		// Already applied above; just flush cmds.
+		return m, tea.Batch(cmds...)
+
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 {
 			m.width = msg.Width
@@ -245,7 +263,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.stepShake()
-		m.stepRaceBars()
+		m.stepCountdownCinematic()
+		m.syncRaceBars()
 		cmds = append(cmds, m.nextTickCmd(), extra, m.takePending())
 		return m, tea.Batch(cmds...)
 
@@ -357,6 +376,7 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		m.themeIdx = (m.themeIdx + 1) % ThemeCount()
 		m.sty = NewStyles(m.themeIdx)
+		m.raceBars = nil // rebuild with new theme colors
 	case "v":
 		if m.voice == roast.VoiceRoast {
 			m.voice = roast.VoiceStoic

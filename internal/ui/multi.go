@@ -337,7 +337,7 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.sess.NoAutoFinish = true
 			m.raceStarted = true
 			m.ghostRec = nil
-			m.barFill = nil
+			m.raceBars = nil
 			m.shake = spring1D{}
 			m.resetCaret()
 			m.phase = phaseTyping
@@ -443,18 +443,9 @@ func (m Model) viewLobby() string {
 		if v.MatchPoint {
 			banner += " · MATCH POINT"
 		}
-		b.WriteString(m.sty.Main.Render(banner))
+		b.WriteString(m.viewCinematicCountdown(banner))
+	} else {
 		b.WriteString("\n")
-		cd := m.cdTimer.View()
-		if !m.cdOn {
-			sec := int(v.CountdownLeft.Seconds() + 0.999)
-			if sec < 0 {
-				sec = 0
-			}
-			cd = fmt.Sprintf("%ds", sec)
-		}
-		b.WriteString(m.sty.Main.Render("starting in " + cd))
-		b.WriteString("\n\n")
 	}
 
 	for _, p := range v.Players {
@@ -545,12 +536,7 @@ func (m Model) viewRaceOpponents() string {
 		b.WriteString(" ")
 		b.WriteString(m.sty.StatValue.Render(fmt.Sprintf("%3.0f", p.Prog.WPM)))
 		b.WriteString(m.sty.Sub.Render(" wpm "))
-		bar := m.raceBarFor(p.ID, p.Prog.Chars, maxChars)
-		if p.You {
-			b.WriteString(m.sty.Main.Render(bar))
-		} else {
-			b.WriteString(m.sty.Sub.Render(bar))
-		}
+		b.WriteString(m.raceBarView(p.ID))
 		b.WriteString(m.sty.Sub.Render(fmt.Sprintf(" %d", p.MatchWins)))
 		if p.Prog.Done {
 			b.WriteString(m.sty.Sub.Render(" done"))
@@ -628,15 +614,7 @@ func (m Model) viewSpectate() string {
 	b.WriteString("\n")
 	switch v.Phase {
 	case multi.PhaseCountdown:
-		cd := m.cdTimer.View()
-		if !m.cdOn {
-			sec := int(v.CountdownLeft.Seconds() + 0.999)
-			if sec < 0 {
-				sec = 0
-			}
-			cd = fmt.Sprintf("%ds", sec)
-		}
-		b.WriteString(m.sty.Main.Render("starting in " + cd))
+		b.WriteString(m.viewCinematicCountdown(v.Code))
 	case multi.PhaseRacing:
 		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("%.0fs left", v.RaceRemaining.Seconds())))
 	case multi.PhaseLobby:

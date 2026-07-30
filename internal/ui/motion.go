@@ -4,18 +4,15 @@ import (
 	"math"
 	"strings"
 
+	"charm.land/bubbles/v2/progress"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/harmonica"
 
 	"github.com/kjkusap/monkeytype-clone/internal/multi"
 )
 
 const (
-	raceBarWidth = 10
-
-	barSpringFreq = 7.5
-	barSpringDamp = 0.88
-	barSettlePos  = 0.03
-	barSettleVel  = 0.05
+	raceBarWidth = 14
 
 	shakeSpringFreq = 20.0
 	shakeSpringDamp = 0.28
@@ -25,10 +22,7 @@ const (
 	shakeMaxCells   = 3
 )
 
-var (
-	barSpring   = harmonica.NewSpring(harmonica.FPS(30), barSpringFreq, barSpringDamp)
-	shakeSpring = harmonica.NewSpring(harmonica.FPS(30), shakeSpringFreq, shakeSpringDamp)
-)
+var shakeSpring = harmonica.NewSpring(harmonica.FPS(30), shakeSpringFreq, shakeSpringDamp)
 
 type spring1D struct {
 	x, v float64
@@ -48,7 +42,7 @@ func (s *spring1D) stepToward(spring harmonica.Spring, target, posEps, velEps fl
 
 func (m *Model) resetMotion() {
 	m.shake = spring1D{}
-	m.barFill = nil
+	m.raceBars = nil
 }
 
 func (m *Model) triggerShake() {
@@ -68,7 +62,24 @@ func (m Model) shakeAnimating() bool {
 	return !m.shake.settled(0, shakeSettlePos, shakeSettleVel)
 }
 
-func (m *Model) stepRaceBars() {
+func newRaceProgressThemed(you bool, themeIdx int) progress.Model {
+	th := themes[themeIdx%len(themes)]
+	opts := []progress.Option{
+		progress.WithWidth(raceBarWidth),
+		progress.WithoutPercentage(),
+		progress.WithSpringOptions(7.5, 0.85),
+		progress.WithFillCharacters('█', '░'),
+	}
+	if you {
+		opts = append(opts, progress.WithColors(lipgloss.Color(th.Main), lipgloss.Color(th.Text)))
+	} else {
+		opts = append(opts, progress.WithColors(lipgloss.Color(th.Sub)))
+	}
+	return progress.New(opts...)
+}
+
+// syncRaceBars drives bubbles progress.SetPercent toward each racer's share of the lead.
+func (m *Model) syncRaceBars() {
 	if m.roomCode == "" {
 		return
 	}
@@ -85,8 +96,8 @@ func (m *Model) stepRaceBars() {
 			maxChars = p.Prog.Chars
 		}
 	}
-	if m.barFill == nil {
-		m.barFill = make(map[string]spring1D)
+	if m.raceBars == nil {
+		m.raceBars = make(map[string]progress.Model)
 	}
 	live := make(map[string]struct{}, len(v.Players))
 	for _, p := range v.Players {
@@ -94,66 +105,43 @@ func (m *Model) stepRaceBars() {
 			continue
 		}
 		live[p.ID] = struct{}{}
-		target := float64(p.Prog.Chars) / float64(maxChars) * float64(raceBarWidth)
-		st, ok := m.barFill[p.ID]
+		target := float64(p.Prog.Chars) / float64(maxChars)
+		bar, ok := m.raceBars[p.ID]
 		if !ok {
-			// First sight: snap so mid-race join doesn't crawl from empty.
-			st = spring1D{x: target}
-		} else {
-			st.stepToward(barSpring, target, barSettlePos, barSettleVel)
+			bar = newRaceProgressThemed(p.You, m.themeIdx)
 		}
-		m.barFill[p.ID] = st
+		if ok && math.Abs(bar.Percent()-target) < 0.001 {
+			m.raceBars[p.ID] = bar
+			continue
+		}
+		cmd := bar.SetPercent(target)
+		m.raceBars[p.ID] = bar
+		m.queueCmd(cmd)
 	}
-	for id := range m.barFill {
+	for id := range m.raceBars {
 		if _, ok := live[id]; !ok {
-			delete(m.barFill, id)
+			delete(m.raceBars, id)
 		}
 	}
 }
 
 func (m Model) barsAnimating() bool {
-	if m.roomCode == "" || m.barFill == nil {
+	if m.roomCode == "" || m.raceBars == nil {
 		return false
 	}
-	v := m.multiView
-	if v.Phase != multi.PhaseRacing && v.Phase != multi.PhaseCountdown {
-		return false
-	}
-	maxChars := 1
-	for _, p := range v.Players {
-		if p.Spectator {
-			continue
-		}
-		if p.Prog.Chars > maxChars {
-			maxChars = p.Prog.Chars
-		}
-	}
-	for _, p := range v.Players {
-		if p.Spectator {
-			continue
-		}
-		st, ok := m.barFill[p.ID]
-		if !ok {
-			continue
-		}
-		target := float64(p.Prog.Chars) / float64(maxChars) * float64(raceBarWidth)
-		if !st.settled(target, barSettlePos, barSettleVel) {
+	for _, bar := range m.raceBars {
+		if bar.IsAnimating() {
 			return true
 		}
 	}
 	return false
 }
 
-func (m Model) raceBarFor(playerID string, chars, maxChars int) string {
-	if maxChars < 1 {
-		maxChars = 1
+func (m Model) raceBarView(playerID string) string {
+	if bar, ok := m.raceBars[playerID]; ok {
+		return bar.View()
 	}
-	target := float64(chars) / float64(maxChars) * float64(raceBarWidth)
-	fill := target
-	if st, ok := m.barFill[playerID]; ok {
-		fill = st.x
-	}
-	return progressBarFill(fill, raceBarWidth)
+	return progressBarFill(0, raceBarWidth)
 }
 
 func progressBarFill(fill float64, width int) string {

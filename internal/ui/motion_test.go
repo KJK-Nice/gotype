@@ -42,30 +42,34 @@ func TestShakeSettles(t *testing.T) {
 	}
 }
 
-func TestRaceBarsSpring(t *testing.T) {
+func TestRaceBarsBubblesProgress(t *testing.T) {
 	m := New()
 	m.roomCode = "ABCD"
 	m.multiView = multi.View{
 		Phase: multi.PhaseRacing,
 		Players: []multi.PlayerView{
-			{ID: "a", Name: "alice", Prog: multi.Progress{Chars: 0}},
+			{ID: "a", Name: "alice", You: true, Prog: multi.Progress{Chars: 0}},
 			{ID: "b", Name: "bob", Prog: multi.Progress{Chars: 0}},
 		},
 	}
-	m.stepRaceBars()
+	m.syncRaceBars()
+	if m.raceBars["a"].Percent() != 0 {
+		t.Fatalf("initial percent=%v", m.raceBars["a"].Percent())
+	}
 	m.multiView.Players[0].Prog.Chars = 50
 	m.multiView.Players[1].Prog.Chars = 100
-	for i := 0; i < 80; i++ {
-		m.stepRaceBars()
+	m.syncRaceBars()
+	if m.raceBars["a"].Percent() != 0.5 {
+		t.Fatalf("alice target=%v want 0.5", m.raceBars["a"].Percent())
 	}
-	if !m.barFill["a"].settled(5, barSettlePos, barSettleVel) {
-		t.Fatalf("alice fill=%v want ~5", m.barFill["a"].x)
+	if m.raceBars["b"].Percent() != 1 {
+		t.Fatalf("bob target=%v want 1", m.raceBars["b"].Percent())
 	}
-	if !m.barFill["b"].settled(10, barSettlePos, barSettleVel) {
-		t.Fatalf("bob fill=%v want ~10", m.barFill["b"].x)
+	if m.takePending() == nil {
+		t.Fatal("expected SetPercent animation cmd")
 	}
-	bar := m.raceBarFor("a", 50, 100)
-	if len([]rune(bar)) != raceBarWidth {
-		t.Fatalf("bar=%q", bar)
+	view := m.raceBarView("a")
+	if view == "" {
+		t.Fatal("empty bar view")
 	}
 }
