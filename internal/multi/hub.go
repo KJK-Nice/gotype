@@ -55,6 +55,8 @@ type Progress struct {
 	Correct  int
 	Chars    int
 	Done     bool
+	HP       int  // Three-Strike; 0 when classic
+	DNF      bool // Three-Strike elimination
 }
 
 type ChatLine struct {
@@ -304,6 +306,24 @@ func (h *Hub) Leave(playerID string) {
 	}
 }
 
+// SetThreeStrike toggles hardcore (Three-Strike) in lobby only; host only.
+func (h *Hub) SetThreeStrike(playerID string, on bool) (View, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room, err := h.roomForLocked(playerID)
+	if err != nil {
+		return View{}, err
+	}
+	if room.Phase != PhaseLobby {
+		return View{}, ErrBadPhase
+	}
+	if room.HostID != playerID {
+		return View{}, ErrNotHost
+	}
+	room.Config.ThreeStrike = on
+	return h.viewLocked(room, playerID, time.Now()), nil
+}
+
 func (h *Hub) Start(playerID string, now time.Time) (View, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -476,7 +496,7 @@ func (h *Hub) awardRaceLocked(room *Room) {
 
 	var winner *Player
 	for _, p := range room.Players {
-		if p.Spectator {
+		if p.Spectator || p.Prog.DNF {
 			continue
 		}
 		if p.Prog.Chars == 0 && p.Prog.Correct == 0 {

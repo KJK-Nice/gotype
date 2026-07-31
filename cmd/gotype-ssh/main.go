@@ -27,6 +27,9 @@ import (
 	"github.com/kjkusap/monkeytype-clone/internal/ui"
 )
 
+// sharedApp is process-wide progression store (one Railway replica).
+var sharedApp *ui.App
+
 func main() {
 	sshPort := os.Getenv("SSH_PORT")
 	if sshPort == "" {
@@ -47,6 +50,12 @@ func main() {
 	}
 
 	hub := multi.NewHub()
+	app, err := ui.OpenApp("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gotype-ssh: data store: %v\n", err)
+		os.Exit(1)
+	}
+	sharedApp = app
 
 	sshAddr := net.JoinHostPort("0.0.0.0", sshPort)
 	s, err := wish.NewServer(
@@ -352,11 +361,19 @@ func makeTeaProgram(hub *multi.Hub) bubbletea.ProgramHandler {
 		if auto {
 			name = "viewer"
 		}
+		remote := ""
+		if addr := sess.RemoteAddr(); addr != nil {
+			remote = addr.String()
+		}
+		pid := multi.NewPlayerID()
 		m := ui.NewWithOptions(ui.Options{
 			Hub:          hub,
 			PlayerName:   name,
-			PlayerID:     multi.NewPlayerID(),
+			PlayerID:     pid,
 			AutoSpectate: auto,
+			App:          sharedApp,
+			SessionID:    pid,
+			RemoteIP:     remote,
 		})
 
 		w, h := 80, 24

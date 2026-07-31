@@ -144,6 +144,23 @@ func (m Model) updateLobby(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.statusErr = ""
 		m.multiView = v
 		m.applyMultiView(v)
+	case "h":
+		if m.multiView.Phase != multi.PhaseLobby {
+			m.statusErr = "hardcore locked"
+			return m, nil
+		}
+		if !m.multiView.YouAreHost {
+			m.statusErr = "only host toggles hardcore"
+			return m, nil
+		}
+		v, err := m.hub.SetThreeStrike(m.playerID, !m.multiView.Config.ThreeStrike)
+		if err != nil {
+			m.statusErr = err.Error()
+			return m, nil
+		}
+		m.statusErr = ""
+		m.multiView = v
+		m.cfg = v.Config
 	case "g":
 		return m.sendChat("gg")
 	case "/":
@@ -268,7 +285,9 @@ func (m *Model) maybeSyncMulti(force bool) {
 			Accuracy: snap.Accuracy,
 			Correct:  snap.Correct,
 			Chars:    chars,
-			Done:     m.sess.Finished,
+			Done:     m.sess.Finished || m.sess.DNF,
+			HP:       m.sess.HP,
+			DNF:      m.sess.DNF,
 		}, m.now)
 	} else {
 		v = m.hub.Snapshot(m.playerID, m.now)
@@ -351,6 +370,8 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.paceGhost = m.ghostRec
 		}
 		m.ghostRec = nil
+		dnf := m.sess != nil && m.sess.DNF
+		m.grantMultiXP(v.RaceNumber, dnf)
 		m.phase = phasePodium
 		m.syncPodiumTable()
 		m.queueCmd(m.stopRaceStopwatch())
@@ -420,6 +441,11 @@ func (m Model) viewLobby() string {
 	detail := fmt.Sprintf("%s · %s", v.Config.Mode.String(), configDetail(v.Config, nil))
 	if v.Config.Daily {
 		detail += " · " + words.DailyHeadline(m.now)
+	}
+	if v.Config.ThreeStrike {
+		detail += " · hardcore · 3 HP · typo −1"
+	} else {
+		detail += " · classic"
 	}
 	b.WriteString(m.sty.Sub.Render(detail))
 	b.WriteString("\n")
