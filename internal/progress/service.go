@@ -99,29 +99,43 @@ func (s *Service) GrantFinish(playerID string, kind FinishKind, now time.Time) (
 
 func (s *Service) claimUnlockedRewards(playerID string, prog *persist.SeasonProgress) error {
 	tier := TierFromXP(prog.XP)
-	changed := false
+	var freeTiers, premiumTiers []int
+	skuByFree := map[int]string{}
+	skuByPremium := map[int]string{}
 	for t := 1; t <= tier; t++ {
 		if sku := catalog.FreeTrackReward(t); sku != "" && !containsInt(prog.ClaimedFree, t) {
-			if err := s.Store.AddInventory(playerID, sku, 1); err != nil {
-				return err
-			}
-			prog.ClaimedFree = append(prog.ClaimedFree, t)
-			changed = true
+			freeTiers = append(freeTiers, t)
+			skuByFree[t] = sku
 		}
 		if prog.PremiumUnlocked {
 			if sku := catalog.PremiumTrackReward(t); sku != "" && !containsInt(prog.ClaimedPremium, t) {
-				if err := s.Store.AddInventory(playerID, sku, 1); err != nil {
-					return err
-				}
-				prog.ClaimedPremium = append(prog.ClaimedPremium, t)
-				changed = true
+				premiumTiers = append(premiumTiers, t)
+				skuByPremium[t] = sku
 			}
 		}
 	}
-	if changed {
-		return s.Store.SaveProgress(*prog)
+	if len(freeTiers) == 0 && len(premiumTiers) == 0 {
+		return nil
 	}
+	updated, err := s.Store.ApplyRewardClaims(playerID, prog.SeasonID, freeTiers, premiumTiers, skuByFree, skuByPremium)
+	if err != nil {
+		return err
+	}
+	*prog = updated
 	return nil
+}
+
+// ClaimPendingRewards claims any unlocked track rewards for the current season.
+func (s *Service) ClaimPendingRewards(playerID string, now time.Time) error {
+	se, err := s.Store.CurrentSeason(now)
+	if err != nil {
+		return err
+	}
+	prog, err := s.Store.GetOrCreateProgress(playerID, se.ID)
+	if err != nil {
+		return err
+	}
+	return s.claimUnlockedRewards(playerID, &prog)
 }
 
 // UnlockPremium marks Season premium for the current Season.

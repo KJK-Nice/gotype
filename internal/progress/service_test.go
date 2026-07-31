@@ -49,3 +49,52 @@ func TestGrantFinishAndMatrixUnlock(t *testing.T) {
 		t.Fatalf("tier = %d", pass.Tier)
 	}
 }
+
+func TestClaimUnlockedRewardsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	store, err := persist.Open(filepath.Join(dir, "gotype.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := player.NewService(store)
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	reg, err := ps.Register("Racer2", "10.0.0.2", "s1", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(store)
+	se, err := store.CurrentSeason(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog := persist.SeasonProgress{
+		PlayerID:       reg.Player.ID,
+		SeasonID:       se.ID,
+		XP:             1000,
+		ClaimedFree:    []int{},
+		ClaimedPremium: []int{},
+	}
+	if err := store.SaveProgress(prog); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.claimUnlockedRewards(reg.Player.ID, &prog); err != nil {
+		t.Fatal(err)
+	}
+	if store.InventoryQty(reg.Player.ID, catalog.SKUMatrix) != 1 {
+		t.Fatal("expected matrix after first claim")
+	}
+	// Simulate AwardXP / claim retry with stale in-memory claimed list.
+	stale := persist.SeasonProgress{
+		PlayerID:       reg.Player.ID,
+		SeasonID:       se.ID,
+		XP:             1000,
+		ClaimedFree:    []int{},
+		ClaimedPremium: []int{},
+	}
+	if err := svc.claimUnlockedRewards(reg.Player.ID, &stale); err != nil {
+		t.Fatal(err)
+	}
+	if store.InventoryQty(reg.Player.ID, catalog.SKUMatrix) != 1 {
+		t.Fatalf("qty=%d want 1 after retry", store.InventoryQty(reg.Player.ID, catalog.SKUMatrix))
+	}
+}

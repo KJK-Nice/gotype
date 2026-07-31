@@ -82,3 +82,88 @@ func TestBuyGrantIdempotent(t *testing.T) {
 		t.Fatal("double grant")
 	}
 }
+
+func TestGrantPaidRetryDoesNotDoubleInventory(t *testing.T) {
+	dir := t.TempDir()
+	store, err := persist.Open(filepath.Join(dir, "gotype.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := player.NewService(store)
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	reg, err := ps.Register("Buyer2", "1.1.1.2", "s", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog := progress.NewService(store)
+	inv := &fakeInv{paid: true}
+	svc := NewService(store, inv, prog)
+
+	o, err := svc.CreateBuy(context.Background(), reg.Player.ID, catalog.SKUHeart, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate paid-but-not-yet-granted (crash between paid save and grant).
+	o.State = persist.OrderPaid
+	if err := store.SaveOrder(o); err != nil {
+		t.Fatal(err)
+	}
+	o1, err := svc.grantLocked(o, now)
+	if err != nil || o1.State != persist.OrderGranted {
+		t.Fatalf("first %+v %v", o1, err)
+	}
+	o2, err := svc.grantLocked(o, now) // still passes stale paid order
+	if err != nil || o2.State != persist.OrderGranted {
+		t.Fatalf("retry %+v %v", o2, err)
+	}
+	if store.InventoryQty(reg.Player.ID, catalog.SKUHeart) != 1 {
+		t.Fatalf("qty=%d want 1", store.InventoryQty(reg.Player.ID, catalog.SKUHeart))
+	}
+}
+
+func TestPremiumGrantIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	store, err := persist.Open(filepath.Join(dir, "gotype.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := player.NewService(store)
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	reg, err := ps.Register("Buyer3", "1.1.1.3", "s", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog := progress.NewService(store)
+	inv := &fakeInv{paid: true}
+	svc := NewService(store, inv, prog)
+
+	o, err := svc.CreateBuy(context.Background(), reg.Player.ID, catalog.SKUSeasonPrem, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o1, err := svc.PollAndGrant(context.Background(), o.ID, now)
+	if err != nil || o1.State != persist.OrderGranted {
+		t.Fatalf("first %+v %v", o1, err)
+	}
+	se, err := store.CurrentSeason(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p1, err := store.GetOrCreateProgress(reg.Player.ID, se.ID)
+	if err != nil || !p1.PremiumUnlocked {
+		t.Fatalf("premium %+v %v", p1, err)
+	}
+	o2, err := svc.PollAndGrant(context.Background(), o.ID, now)
+	if err != nil || o2.State != persist.OrderGranted {
+		t.Fatalf("retry %+v %v", o2, err)
+	}
+	p2, err := store.GetOrCreateProgress(reg.Player.ID, se.ID)
+	if err != nil || !p2.PremiumUnlocked {
+		t.Fatal("premium should stay unlocked once")
+	}
+	// Re-buy should be rejected as already owned.
+	_, err = svc.CreateBuy(context.Background(), reg.Player.ID, catalog.SKUSeasonPrem, now)
+	if err != persist.ErrAlreadyOwns {
+		t.Fatalf("want already owns, got %v", err)
+	}
+}

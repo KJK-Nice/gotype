@@ -112,40 +112,44 @@ func (s *Service) PollAndGrant(ctx context.Context, orderID string, now time.Tim
 }
 
 func (s *Service) grantLocked(o persist.Order, now time.Time) (persist.Order, error) {
-	if o.State == persist.OrderGranted {
-		return o, nil
+	// Re-read so concurrent/retried polls see OrderGranted after an atomic grant.
+	cur, err := s.Store.GetOrder(o.ID)
+	if err != nil {
+		return o, err
 	}
-	item, ok := catalog.Lookup(o.SKU)
+	if cur.State == persist.OrderGranted {
+		return cur, nil
+	}
+	item, ok := catalog.Lookup(cur.SKU)
 	if !ok {
-		o.State = persist.OrderFailed
-		_ = s.Store.SaveOrder(o)
-		return o, fmt.Errorf("unknown sku on grant")
+		cur.State = persist.OrderFailed
+		_ = s.Store.SaveOrder(cur)
+		return cur, fmt.Errorf("unknown sku on grant")
 	}
 	switch item.Kind {
 	case catalog.KindConsumable:
-		if err := s.Store.AddInventory(o.PlayerID, o.SKU, 1); err != nil {
-			return o, err
-		}
+		granted, err := s.Store.GrantPaidOrder(cur.ID, now, cur.SKU, 1, 0)
+		return granted, err
 	case catalog.KindPremium:
 		if s.Progress == nil {
-			return o, fmt.Errorf("progress service required")
+			return cur, fmt.Errorf("progress service required")
 		}
-		if err := s.Progress.UnlockPremium(o.PlayerID, now); err != nil {
-			if err == persist.ErrAlreadyOwns {
-				// still mark granted — payment succeeded
-			} else {
-				return o, err
-			}
+		se, err := s.Store.CurrentSeason(now)
+		if err != nil {
+			return cur, err
 		}
+		granted, err := s.Store.GrantPaidOrder(cur.ID, now, "", 0, se.ID)
+		if err != nil {
+			return granted, err
+		}
+		// Track rewards after premium unlock (idempotent via Claimed*).
+		if err := s.Progress.ClaimPendingRewards(cur.PlayerID, now); err != nil {
+			return granted, err
+		}
+		return granted, nil
 	default:
-		return o, fmt.Errorf("sku not grantable via shop")
+		return cur, fmt.Errorf("sku not grantable via shop")
 	}
-	o.State = persist.OrderGranted
-	o.GrantedAt = now.UTC()
-	if err := s.Store.SaveOrder(o); err != nil {
-		return o, err
-	}
-	return o, nil
 }
 
 func newOrderID() (string, error) {

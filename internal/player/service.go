@@ -85,6 +85,9 @@ func (s *Service) Register(name, ip, sessionID string, now time.Time) (RegisterR
 }
 
 // Claim re-enters an existing Player with name + Claim Code.
+// Per-name rate limit applies only to failed verifications so attackers cannot
+// lock out the owner by spamming wrong codes before the correct one is tried.
+// Successful claims do not count against the name limit. IP flood limit still applies first.
 func (s *Service) Claim(name, claimCode, ip, sessionID string, now time.Time) (persist.Player, error) {
 	if err := s.allow("claim:"+ip, now); err != nil {
 		return persist.Player{}, err
@@ -93,15 +96,23 @@ func (s *Service) Claim(name, claimCode, ip, sessionID string, now time.Time) (p
 	if err != nil {
 		return persist.Player{}, ErrBadClaim
 	}
-	if err := s.allow("name:"+NameKey(n), now); err != nil {
-		return persist.Player{}, err
-	}
+	nameKey := "name:" + NameKey(n)
 	p, err := s.Store.GetPlayerByNameKey(NameKey(n))
 	if err != nil {
+		if err := s.allow(nameKey, now); err != nil {
+			return persist.Player{}, err
+		}
 		return persist.Player{}, ErrBadClaim
 	}
 	if !VerifyClaimCode(claimCode, p.ClaimHash) {
+		if err := s.allow(nameKey, now); err != nil {
+			return persist.Player{}, err
+		}
 		return persist.Player{}, ErrBadClaim
+	}
+	// Correct code still respects an active failed-attempt lockout for this name.
+	if s.limited(nameKey, now) {
+		return persist.Player{}, ErrRateLimited
 	}
 	if err := s.Store.SetActiveSession(p.ID, sessionID); err != nil {
 		return persist.Player{}, err
@@ -113,6 +124,24 @@ func (s *Service) Claim(name, claimCode, ip, sessionID string, now time.Time) (p
 func (s *Service) allow(key string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	keep := s.trimLocked(key, now)
+	if len(keep) >= s.limit {
+		s.hits[key] = keep
+		return ErrRateLimited
+	}
+	s.hits[key] = append(keep, now)
+	return nil
+}
+
+func (s *Service) limited(key string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	keep := s.trimLocked(key, now)
+	s.hits[key] = keep
+	return len(keep) >= s.limit
+}
+
+func (s *Service) trimLocked(key string, now time.Time) []time.Time {
 	cut := now.Add(-s.window)
 	var keep []time.Time
 	for _, t := range s.hits[key] {
@@ -120,12 +149,7 @@ func (s *Service) allow(key string, now time.Time) error {
 			keep = append(keep, t)
 		}
 	}
-	if len(keep) >= s.limit {
-		s.hits[key] = keep
-		return ErrRateLimited
-	}
-	s.hits[key] = append(keep, now)
-	return nil
+	return keep
 }
 
 func newID() (string, error) {

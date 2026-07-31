@@ -59,9 +59,7 @@ func Open(path string) (*Store, error) {
 	if err := json.Unmarshal(b, &s.data); err != nil {
 		return nil, err
 	}
-	if s.data.Players == nil {
-		s.data = emptyDB()
-	}
+	normalizeDB(&s.data)
 	if err := s.ensureSeasonLocked(time.Now()); err != nil {
 		return nil, err
 	}
@@ -69,16 +67,39 @@ func Open(path string) (*Store, error) {
 }
 
 func emptyDB() db {
-	return db{
-		Players:    map[string]Player{},
-		ByName:     map[string]string{},
-		Inventory:  map[string]InventoryItem{},
-		Equipment:  map[string]Equipment{},
-		Seasons:    map[int]Season{},
-		Progress:   map[string]SeasonProgress{},
-		Orders:     map[string]Order{},
-		Daily:      map[string]DailyXP{},
-		NextSeason: 1,
+	d := db{NextSeason: 1}
+	normalizeDB(&d)
+	return d
+}
+
+// normalizeDB ensures every map field is non-nil so writes never panic.
+func normalizeDB(d *db) {
+	if d.Players == nil {
+		d.Players = map[string]Player{}
+	}
+	if d.ByName == nil {
+		d.ByName = map[string]string{}
+	}
+	if d.Inventory == nil {
+		d.Inventory = map[string]InventoryItem{}
+	}
+	if d.Equipment == nil {
+		d.Equipment = map[string]Equipment{}
+	}
+	if d.Seasons == nil {
+		d.Seasons = map[int]Season{}
+	}
+	if d.Progress == nil {
+		d.Progress = map[string]SeasonProgress{}
+	}
+	if d.Orders == nil {
+		d.Orders = map[string]Order{}
+	}
+	if d.Daily == nil {
+		d.Daily = map[string]DailyXP{}
+	}
+	if d.NextSeason < 1 {
+		d.NextSeason = 1
 	}
 }
 
@@ -351,4 +372,123 @@ func (s *Store) GetOrder(id string) (Order, error) {
 		return Order{}, ErrNotFound
 	}
 	return o, nil
+}
+
+// GrantPaidOrder applies shop grant side-effects and marks the order granted in one save.
+// qty>0 adds inventory for sku; unlockPremiumSeason>0 sets PremiumUnlocked for that season.
+// Idempotent: if the order is already granted, returns it unchanged.
+func (s *Store) GrantPaidOrder(id string, now time.Time, sku string, qty int, unlockPremiumSeason int) (Order, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o, ok := s.data.Orders[id]
+	if !ok {
+		return Order{}, ErrNotFound
+	}
+	if o.State == OrderGranted {
+		return o, nil
+	}
+	if o.State != OrderPaid {
+		return o, ErrBadState
+	}
+	if qty > 0 && sku != "" {
+		k := invKey(o.PlayerID, sku)
+		it := s.data.Inventory[k]
+		it.PlayerID = o.PlayerID
+		it.SKU = sku
+		it.Qty += qty
+		if it.Qty < 0 {
+			it.Qty = 0
+		}
+		s.data.Inventory[k] = it
+	}
+	if unlockPremiumSeason > 0 {
+		k := progKey(o.PlayerID, unlockPremiumSeason)
+		p, ok := s.data.Progress[k]
+		if !ok {
+			p = SeasonProgress{
+				PlayerID:       o.PlayerID,
+				SeasonID:       unlockPremiumSeason,
+				ClaimedFree:    []int{},
+				ClaimedPremium: []int{},
+			}
+		}
+		p.PremiumUnlocked = true
+		s.data.Progress[k] = p
+	}
+	o.State = OrderGranted
+	o.GrantedAt = now.UTC()
+	s.data.Orders[id] = o
+	if err := s.saveLocked(); err != nil {
+		return Order{}, err
+	}
+	return o, nil
+}
+
+// ApplyRewardClaims marks free/premium tiers claimed and adds inventory in one save.
+// Tiers already present in persisted Claimed* are skipped (idempotent retries).
+func (s *Store) ApplyRewardClaims(playerID string, seasonID int, freeTiers, premiumTiers []int, skuByFree, skuByPremium map[int]string) (SeasonProgress, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := progKey(playerID, seasonID)
+	prog, ok := s.data.Progress[k]
+	if !ok {
+		prog = SeasonProgress{
+			PlayerID:       playerID,
+			SeasonID:       seasonID,
+			ClaimedFree:    []int{},
+			ClaimedPremium: []int{},
+		}
+	}
+	changed := false
+	for _, t := range freeTiers {
+		if containsInt(prog.ClaimedFree, t) {
+			continue
+		}
+		sku := skuByFree[t]
+		if sku == "" {
+			continue
+		}
+		ik := invKey(playerID, sku)
+		it := s.data.Inventory[ik]
+		it.PlayerID = playerID
+		it.SKU = sku
+		it.Qty++
+		s.data.Inventory[ik] = it
+		prog.ClaimedFree = append(prog.ClaimedFree, t)
+		changed = true
+	}
+	for _, t := range premiumTiers {
+		if containsInt(prog.ClaimedPremium, t) {
+			continue
+		}
+		sku := skuByPremium[t]
+		if sku == "" {
+			continue
+		}
+		ik := invKey(playerID, sku)
+		it := s.data.Inventory[ik]
+		it.PlayerID = playerID
+		it.SKU = sku
+		it.Qty++
+		s.data.Inventory[ik] = it
+		prog.ClaimedPremium = append(prog.ClaimedPremium, t)
+		changed = true
+	}
+	s.data.Progress[k] = prog
+	if !changed {
+		return prog, nil
+	}
+	if err := s.saveLocked(); err != nil {
+		return SeasonProgress{}, err
+	}
+	return prog, nil
+}
+
+func containsInt(xs []int, v int) bool {
+	for _, x := range xs {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
