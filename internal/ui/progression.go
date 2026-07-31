@@ -442,9 +442,9 @@ func (m Model) viewShop() string {
 		b.WriteString(m.sty.Incorrect.Render(m.buyErr))
 		b.WriteString("\n")
 	}
-	if m.app != nil && !shop.LNBitsFromEnv().Configured() {
+	if m.app != nil && !shop.ShopConfigured() {
 		b.WriteString("\n")
-		b.WriteString(m.sty.Sub.Render("set LNBITS_URL + LNBITS_API_KEY to Buy"))
+		b.WriteString(m.sty.Sub.Render("set PHOENIXD_URL + PHOENIXD_PASSWORD to Buy"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

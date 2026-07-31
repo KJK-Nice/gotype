@@ -44,13 +44,6 @@ func NewInvoiceClient(cfg LNBitsConfig) *InvoiceClient {
 	}
 }
 
-// CreatedInvoice is the LNBits create response subset we need.
-type CreatedInvoice struct {
-	PaymentHash    string
-	PaymentRequest string
-	CheckingID     string
-}
-
 type createBody struct {
 	Out        bool           `json:"out"`
 	Amount     int            `json:"amount"`
@@ -118,13 +111,6 @@ func (c *InvoiceClient) CreateInbound(ctx context.Context, sats int, memo, order
 		PaymentRequest: resp.PaymentRequest,
 		CheckingID:     resp.CheckingID,
 	}, nil
-}
-
-// PaymentStatus is a poll result.
-type PaymentStatus struct {
-	Paid        bool
-	Status      string
-	PaymentHash string
 }
 
 // CheckPaid polls GET /api/v1/payments/{checking_id}.

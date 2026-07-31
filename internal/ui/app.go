@@ -34,7 +34,7 @@ func OpenApp(path string) (*App, error) {
 	}
 	players := player.NewService(store)
 	prog := progress.NewService(store)
-	inv := shop.NewInvoiceClient(shop.LNBitsFromEnv())
+	inv := shop.NewInvoicerFromEnv()
 	return &App{
 		Store:    store,
 		Players:  players,

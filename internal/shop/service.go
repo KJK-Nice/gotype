@@ -13,7 +13,7 @@ import (
 
 const InvoiceTTL = 15 * time.Minute
 
-// Invoicer abstracts LNBits (or fakes in tests).
+// Invoicer abstracts Phoenixd / LNBits (or fakes in tests).
 type Invoicer interface {
 	CreateInbound(ctx context.Context, sats int, memo, orderID string, expirySec int) (CreatedInvoice, error)
 	CheckPaid(ctx context.Context, checkingID string) (PaymentStatus, error)
