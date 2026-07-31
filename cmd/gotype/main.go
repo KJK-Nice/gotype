@@ -10,7 +10,12 @@ import (
 )
 
 func main() {
-	p := tea.NewProgram(ui.New(), tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+	app, err := ui.OpenApp("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gotype: data store: %v\n", err)
+		os.Exit(1)
+	}
+	p := tea.NewProgram(ui.NewWithOptions(ui.Options{App: app}), tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
 		if ws, ok := msg.(tea.WindowSizeMsg); ok {
 			if ws.Width < 1 {
 				ws.Width = 80

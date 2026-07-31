@@ -23,6 +23,7 @@ import (
 	"github.com/kjkusap/monkeytype-clone/internal/invite"
 	"github.com/kjkusap/monkeytype-clone/internal/ln"
 	"github.com/kjkusap/monkeytype-clone/internal/multi"
+	"github.com/kjkusap/monkeytype-clone/internal/persist"
 	"github.com/kjkusap/monkeytype-clone/internal/roast"
 	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
@@ -52,6 +53,9 @@ type Options struct {
 	PlayerName   string
 	PlayerID     string
 	AutoSpectate bool // ssh demo@… — jump into live/DEMO spectate
+	App          *App
+	SessionID    string
+	RemoteIP     string
 }
 
 // Model is the Bubble Tea root model.
@@ -117,6 +121,26 @@ type Model struct {
 	tipErr       string
 
 	autoSpectate bool
+
+	app       *App
+	sessionID string
+	remoteIP  string
+	claimedID string
+
+	claimMode   claimMode
+	claimNameTI textinput.Model
+	claimCodeTI textinput.Model
+	claimErr    string
+	claimShown  string
+
+	prog       progSurface
+	shopIdx    int
+	equipIdx   int
+	buyOrder   persist.Order
+	buyQR      string
+	buyErr     string
+	lastXPLine string
+	multiXPRace int
 }
 
 type focusField int
@@ -141,6 +165,14 @@ func NewWithOptions(opts Options) Model {
 	if name == "" {
 		name = "player"
 	}
+	sessID := opts.SessionID
+	if sessID == "" {
+		sessID = id
+	}
+	ip := opts.RemoteIP
+	if ip == "" {
+		ip = "local"
+	}
 	m := Model{
 		phase:        phaseConfig,
 		cfg:          game.DefaultConfig,
@@ -156,8 +188,12 @@ func NewWithOptions(opts Options) Model {
 		ninjaCaret:   false,
 		ghostOn:      true,
 		autoSpectate: opts.AutoSpectate,
+		app:          opts.App,
+		sessionID:    sessID,
+		remoteIP:     ip,
 	}
 	m.initBubbles()
+	m.initClaimInputs()
 	return m
 }
 
@@ -277,6 +313,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tipLoadingDone(msg)
 		return m, tea.Batch(cmds...)
 
+	case claimMsg:
+		m.applyClaimMsg(msg)
+		return m, tea.Batch(cmds...)
+
+	case buyMsg:
+		if c := m.applyBuyMsg(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+		return m, tea.Batch(cmds...)
+
+	case buyPollMsg:
+		if c := m.applyBuyPoll(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+		return m, tea.Batch(cmds...)
+
 	case autoSpectateMsg:
 		if m.hub == nil {
 			return m, tea.Batch(cmds...)
@@ -314,6 +366,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if m.claimMode != claimIdle {
+		return m.updateClaim(msg)
+	}
+	if m.prog != progNone {
+		if nm, cmd, ok := m.tryProgHotkey(msg); ok {
+			return nm, cmd
+		}
+		return m.updateProg(msg)
+	}
+	if nm, cmd, ok := m.tryProgHotkey(msg); ok {
+		return nm, cmd
 	}
 
 	switch m.phase {
@@ -373,10 +437,12 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.statusErr = ""
 			m.phase = phaseMultiMenu
 		}
-	case "p":
+	case "u":
 		m.themeIdx = (m.themeIdx + 1) % ThemeCount()
 		m.sty = NewStyles(m.themeIdx)
 		m.raceBars = nil // rebuild with new theme colors
+	case "c":
+		m.openClaim()
 	case "v":
 		if m.voice == roast.VoiceRoast {
 			m.voice = roast.VoiceStoic
@@ -511,6 +577,7 @@ func (m *Model) finishSolo() tea.Cmd {
 	m.roastText = ""
 	m.roastLoading = true
 	m.clearTip()
+	m.grantSoloXP()
 	stop := m.stopRaceStopwatch()
 	return tea.Batch(stop, m.roastCmd(), m.spin.Tick)
 }
@@ -630,26 +697,32 @@ func (m Model) updateResult(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() tea.View {
 	var body string
-	switch m.phase {
-	case phaseConfig:
+	switch {
+	case m.claimMode != claimIdle:
+		body = m.viewClaim()
+	case m.prog == progBuyWait:
+		body = m.viewBuyWait()
+	case m.prog != progNone:
+		body = m.viewProg()
+	case m.phase == phaseConfig:
 		body = m.viewConfig()
-	case phaseTyping:
+	case m.phase == phaseTyping:
 		body = m.viewTyping()
-	case phaseResult:
+	case m.phase == phaseResult:
 		if m.tipPhase != tipNone {
 			body = m.viewTip()
 		} else {
 			body = m.viewResult()
 		}
-	case phaseMultiMenu:
+	case m.phase == phaseMultiMenu:
 		body = m.viewMultiMenu()
-	case phaseJoin:
+	case m.phase == phaseJoin:
 		body = m.viewJoin()
-	case phaseLobby:
+	case m.phase == phaseLobby:
 		body = m.viewLobby()
-	case phaseSpectate:
+	case m.phase == phaseSpectate:
 		body = m.viewSpectate()
-	case phasePodium:
+	case m.phase == phasePodium:
 		body = m.viewPodium()
 	}
 
@@ -788,6 +861,17 @@ func (m Model) viewConfig() string {
 	} else {
 		b.WriteString(m.sty.Main.Render("off"))
 	}
+	b.WriteString("\n")
+	b.WriteString(m.sty.Sub.Render("player "))
+	if m.isClaimed() {
+		b.WriteString(m.sty.Main.Render(m.playerName))
+	} else {
+		b.WriteString(m.sty.Sub.Render("guest · c claim"))
+	}
+	if m.statusErr != "" {
+		b.WriteString("\n")
+		b.WriteString(m.sty.Incorrect.Render(m.statusErr))
+	}
 	b.WriteString("\n\n")
 	b.WriteString(m.renderHelp(m.helpConfig()))
 	return b.String()
@@ -815,8 +899,17 @@ func (m Model) viewTyping() string {
 		if m.ghostOn && len(m.paceGhost) > 0 {
 			hud += "  " + m.sty.Sub.Render("ghost")
 		}
+		if m.sess.Config.ThreeStrike {
+			hud += "  " + m.sty.Main.Render(heartHUD(m.sess.HP, m.sess.MaxHP))
+			if m.sess.DNF {
+				hud += "  " + m.sty.Incorrect.Render("DNF")
+			}
+		}
 	} else {
 		hud += "  " + m.sty.Sub.Render("start typing…")
+		if m.sess.Config.ThreeStrike {
+			hud += "  " + m.sty.Sub.Render(heartHUD(m.sess.HP, m.sess.MaxHP))
+		}
 	}
 	b.WriteString(hud)
 	b.WriteString("\n\n")
@@ -947,6 +1040,21 @@ func (m Model) renderPrompt() string {
 	return strings.Join(lines[start:end], "\n")
 }
 
+func heartHUD(hp, max int) string {
+	if max <= 0 {
+		max = game.ThreeStrikeStartHP
+	}
+	var b strings.Builder
+	for i := 0; i < max; i++ {
+		if i < hp {
+			b.WriteString("❤")
+		} else {
+			b.WriteString("♡")
+		}
+	}
+	return b.String()
+}
+
 func (m Model) viewResult() string {
 	if m.sess == nil {
 		return ""
@@ -1006,6 +1114,14 @@ func (m Model) viewResult() string {
 	if m.cfg.Daily {
 		b.WriteString("\n")
 		b.WriteString(m.sty.Main.Render(words.DailyHeadline(m.now)))
+	}
+	if m.lastXPLine != "" {
+		b.WriteString("\n")
+		b.WriteString(m.sty.Main.Render(m.lastXPLine))
+	}
+	if m.sess != nil && m.sess.DNF {
+		b.WriteString("\n")
+		b.WriteString(m.sty.Incorrect.Render("DNF · hardcore"))
 	}
 	b.WriteString("\n\n")
 	b.WriteString(m.sty.Main.Render(m.voice.String()))

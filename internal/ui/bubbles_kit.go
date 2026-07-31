@@ -43,7 +43,9 @@ func (m Model) helpConfig() phaseKeyMap {
 		bind("up/down", "↑↓", "change"),
 		bind("tab", "tab", "focus"),
 		bind("enter", "enter", "start"),
-		bind("p", "p", "theme"),
+		bind("u", "u", "theme"),
+		bind("c", "c", "claim"),
+		bind("i/s/p/e", "i/s/p/e", "progress"),
 		bind("v", "v", "voice"),
 		bind("n", "n", "ninja"),
 		bind("y", "y", "daily"),
@@ -88,7 +90,10 @@ func helpLobby(host, countdown bool) phaseKeyMap {
 		bind("esc", "esc", "leave"),
 	}
 	if host {
-		b = append([]key.Binding{bind("s/enter", "s", "start")}, b...)
+		b = append([]key.Binding{
+			bind("s/enter", "s", "start"),
+			bind("h", "h", "hardcore"),
+		}, b...)
 	}
 	return km(b...)
 }
@@ -122,6 +127,7 @@ func helpPodium(spectator, matchOver, matchPoint bool) phaseKeyMap {
 func helpResult(tipOK bool) phaseKeyMap {
 	b := []key.Binding{
 		bind("tab/enter", "tab", "again"),
+		bind("i/s/p/e", "i/s/p/e", "progress"),
 		bind("esc", "esc", "menu"),
 		bind("q", "q", "quit"),
 	}

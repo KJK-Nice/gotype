@@ -1,0 +1,208 @@
+package progress
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/kjkusap/monkeytype-clone/internal/catalog"
+	"github.com/kjkusap/monkeytype-clone/internal/persist"
+)
+
+// Kind of race finish for XP.
+type FinishKind int
+
+const (
+	FinishNone FinishKind = iota
+	FinishSolo
+	FinishMulti
+)
+
+// Service grants XP and claims Season track rewards.
+type Service struct {
+	Store *persist.Store
+}
+
+func NewService(store *persist.Store) *Service {
+	return &Service{Store: store}
+}
+
+// GrantResult is the outcome of a race XP grant.
+type GrantResult struct {
+	Granted   int
+	DayXP     int
+	SeasonXP  int
+	Tier      int
+	SeasonID  int
+	Skipped   string // reason when 0 granted beyond cap/incomplete
+}
+
+// GrantFinish awards Season XP for a completed race (idempotent caller-side).
+func (s *Service) GrantFinish(playerID string, kind FinishKind, now time.Time) (GrantResult, error) {
+	var want int
+	switch kind {
+	case FinishSolo:
+		want = SoloFinishXP
+	case FinishMulti:
+		want = MultiFinishXP
+	default:
+		return GrantResult{Skipped: "incomplete"}, nil
+	}
+	se, err := s.Store.CurrentSeason(now)
+	if err != nil {
+		return GrantResult{}, err
+	}
+	prog, err := s.Store.GetOrCreateProgress(playerID, se.ID)
+	if err != nil {
+		return GrantResult{}, err
+	}
+	day := UTCDay(now)
+	dayXP, err := s.Store.GetDailyXP(playerID, day)
+	if err != nil {
+		return GrantResult{}, err
+	}
+	granted, newDay, err := ApplyXPGrant(prog.XP, dayXP, want, now)
+	if err != nil {
+		return GrantResult{}, err
+	}
+	if granted == 0 {
+		skip := "daily_cap"
+		if want == 0 {
+			skip = "incomplete"
+		}
+		return GrantResult{
+			Granted:  0,
+			DayXP:    newDay,
+			SeasonXP: prog.XP,
+			Tier:     TierFromXP(prog.XP),
+			SeasonID: se.ID,
+			Skipped:  skip,
+		}, nil
+	}
+	prog.XP += granted
+	if err := s.Store.SaveProgress(prog); err != nil {
+		return GrantResult{}, err
+	}
+	if err := s.Store.SetDailyXP(playerID, day, newDay); err != nil {
+		return GrantResult{}, err
+	}
+	if err := s.claimUnlockedRewards(playerID, &prog); err != nil {
+		return GrantResult{}, err
+	}
+	return GrantResult{
+		Granted:  granted,
+		DayXP:    newDay,
+		SeasonXP: prog.XP,
+		Tier:     TierFromXP(prog.XP),
+		SeasonID: se.ID,
+	}, nil
+}
+
+func (s *Service) claimUnlockedRewards(playerID string, prog *persist.SeasonProgress) error {
+	tier := TierFromXP(prog.XP)
+	changed := false
+	for t := 1; t <= tier; t++ {
+		if sku := catalog.FreeTrackReward(t); sku != "" && !containsInt(prog.ClaimedFree, t) {
+			if err := s.Store.AddInventory(playerID, sku, 1); err != nil {
+				return err
+			}
+			prog.ClaimedFree = append(prog.ClaimedFree, t)
+			changed = true
+		}
+		if prog.PremiumUnlocked {
+			if sku := catalog.PremiumTrackReward(t); sku != "" && !containsInt(prog.ClaimedPremium, t) {
+				if err := s.Store.AddInventory(playerID, sku, 1); err != nil {
+					return err
+				}
+				prog.ClaimedPremium = append(prog.ClaimedPremium, t)
+				changed = true
+			}
+		}
+	}
+	if changed {
+		return s.Store.SaveProgress(*prog)
+	}
+	return nil
+}
+
+// UnlockPremium marks Season premium for the current Season.
+func (s *Service) UnlockPremium(playerID string, now time.Time) error {
+	se, err := s.Store.CurrentSeason(now)
+	if err != nil {
+		return err
+	}
+	prog, err := s.Store.GetOrCreateProgress(playerID, se.ID)
+	if err != nil {
+		return err
+	}
+	if prog.PremiumUnlocked {
+		return persist.ErrAlreadyOwns
+	}
+	prog.PremiumUnlocked = true
+	if err := s.Store.SaveProgress(prog); err != nil {
+		return err
+	}
+	return s.claimUnlockedRewards(playerID, &prog)
+}
+
+// PassView is a read model for the Season Pass UI.
+type PassView struct {
+	SeasonID        int
+	DaysLeft        int
+	XP              int
+	Tier            int
+	PremiumUnlocked bool
+	NextTierXP      int
+	MatrixOwned     bool
+	RainOwned       bool
+}
+
+// ViewPass builds Season Pass summary.
+func (s *Service) ViewPass(playerID string, now time.Time) (PassView, error) {
+	se, err := s.Store.CurrentSeason(now)
+	if err != nil {
+		return PassView{}, err
+	}
+	prog, err := s.Store.GetOrCreateProgress(playerID, se.ID)
+	if err != nil {
+		return PassView{}, err
+	}
+	tier := TierFromXP(prog.XP)
+	next := XPForTier(tier + 1)
+	days := int(se.EndsAt.Sub(now.UTC()).Hours() / 24)
+	if days < 0 {
+		days = 0
+	}
+	return PassView{
+		SeasonID:        se.ID,
+		DaysLeft:        days,
+		XP:              prog.XP,
+		Tier:            tier,
+		PremiumUnlocked: prog.PremiumUnlocked,
+		NextTierXP:      next,
+		MatrixOwned:     s.Store.InventoryQty(playerID, catalog.SKUMatrix) > 0,
+		RainOwned:       s.Store.InventoryQty(playerID, catalog.SKUMakeItRain) > 0,
+	}, nil
+}
+
+func containsInt(xs []int, v int) bool {
+	for _, x := range xs {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// Ensure claimed helper exported for tests.
+func ClaimedContains(xs []int, v int) bool { return containsInt(xs, v) }
+
+// FormatGrantLine is a short results banner.
+func FormatGrantLine(g GrantResult) string {
+	if g.Granted <= 0 {
+		if g.Skipped == "daily_cap" {
+			return fmt.Sprintf("+0 xp · day %d/%d (cap)", g.DayXP, DailyXPCap)
+		}
+		return ""
+	}
+	return fmt.Sprintf("+%d xp · day %d/%d · tier %d", g.Granted, g.DayXP, DailyXPCap, g.Tier)
+}

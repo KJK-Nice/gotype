@@ -40,6 +40,8 @@ type Config struct {
 	WordCount int           // words mode
 	QuoteLen  words.QuoteLen
 	Daily     bool // UTC daily seed — same prompt worldwide today
+	// ThreeStrike is hardcore: start 3 HP, incorrect character commit −1, 0 HP = DNF.
+	ThreeStrike bool
 }
 
 var (
@@ -85,7 +87,17 @@ type Session struct {
 	lastSampleAt time.Time
 
 	QuoteAuthor string // set in quote mode
+
+	// Three-Strike (hardcore) state.
+	HP    int
+	MaxHP int
+	DNF   bool
 }
+
+const (
+	ThreeStrikeStartHP = 3
+	ThreeStrikeMaxHP   = 5
+)
 
 func NewSession(cfg Config) *Session {
 	return NewSessionSeeded(cfg, 0)
@@ -121,6 +133,10 @@ func NewSessionSeeded(cfg Config, seed uint64) *Session {
 		Words:       w,
 		Typed:       make([][]rune, len(w)),
 		QuoteAuthor: author,
+	}
+	if cfg.ThreeStrike {
+		s.HP = ThreeStrikeStartHP
+		s.MaxHP = ThreeStrikeMaxHP
 	}
 	s.rebuildChars()
 	return s
@@ -202,11 +218,38 @@ func (s *Session) recordError(now time.Time) {
 		at = 0
 	}
 	s.Errors = append(s.Errors, at)
+	s.applyThreeStrikeHit(now)
+}
+
+func (s *Session) applyThreeStrikeHit(now time.Time) {
+	if !s.Config.ThreeStrike || s.DNF || s.Finished {
+		return
+	}
+	s.HP--
+	if s.HP < 0 {
+		s.HP = 0
+	}
+	if s.HP == 0 {
+		s.DNF = true
+		s.finish(now)
+	}
+}
+
+// AddHeart restores 1 HP in Three-Strike (max 5). Returns false if not applicable.
+func (s *Session) AddHeart() bool {
+	if !s.Config.ThreeStrike || s.DNF || s.Finished {
+		return false
+	}
+	if s.HP >= s.MaxHP {
+		return false
+	}
+	s.HP++
+	return true
 }
 
 // HandleRune processes a printable character (not space/backspace).
 func (s *Session) HandleRune(r rune, now time.Time) {
-	if s.Finished || !unicode.IsPrint(r) || r == ' ' {
+	if s.Finished || s.DNF || !unicode.IsPrint(r) || r == ' ' {
 		return
 	}
 	s.ensureStarted(now)
@@ -237,7 +280,7 @@ func (s *Session) HandleRune(r rune, now time.Time) {
 
 // HandleSpace advances to the next word.
 func (s *Session) HandleSpace(now time.Time) {
-	if s.Finished {
+	if s.Finished || s.DNF {
 		return
 	}
 	s.ensureStarted(now)
