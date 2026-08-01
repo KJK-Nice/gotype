@@ -10,18 +10,27 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/kjkusap/monkeytype-clone/internal/shop"
 )
 
 // DefaultAmounts are tip choices in satoshis.
 var DefaultAmounts = []int{21, 100, 500, 2100}
 
-// Configured is true when a tip destination is set.
+// Configured is true when Phoenixd or a tip destination is set.
 func Configured() bool {
-	return Destination() != ""
+	return shop.PhoenixdFromEnv().Configured() || tipDestination() != ""
 }
 
-// Destination returns lightning address or LNURL https endpoint.
+// Destination returns the active tip backend label or LNURL endpoint.
 func Destination() string {
+	if shop.PhoenixdFromEnv().Configured() {
+		return "phoenixd"
+	}
+	return tipDestination()
+}
+
+func tipDestination() string {
 	if a := strings.TrimSpace(os.Getenv("TIP_LIGHTNING_ADDRESS")); a != "" {
 		return a
 	}
@@ -34,14 +43,21 @@ type Invoice struct {
 	Sats   int
 }
 
-// CreateInvoice fetches a LNURL-pay invoice for sats.
+// CreateInvoice returns a bolt11 tip invoice via Phoenixd (preferred) or LNURL-pay.
 func CreateInvoice(ctx context.Context, sats int, comment string) (Invoice, error) {
 	if sats <= 0 {
 		return Invoice{}, fmt.Errorf("sats must be positive")
 	}
-	dest := Destination()
+	if cfg := shop.PhoenixdFromEnv(); cfg.Configured() {
+		created, err := shop.NewPhoenixdClient(cfg).CreateInbound(ctx, sats, comment, "", 15*60)
+		if err != nil {
+			return Invoice{}, err
+		}
+		return Invoice{Bolt11: created.PaymentRequest, Sats: sats}, nil
+	}
+	dest := tipDestination()
 	if dest == "" {
-		return Invoice{}, fmt.Errorf("set TIP_LIGHTNING_ADDRESS or TIP_LNURL")
+		return Invoice{}, fmt.Errorf("set PHOENIXD_URL + PHOENIXD_PASSWORD or TIP_LIGHTNING_ADDRESS or TIP_LNURL")
 	}
 
 	payURL, err := resolvePayURL(dest)

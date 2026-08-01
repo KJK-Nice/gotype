@@ -20,11 +20,48 @@ var (
 	ErrAlreadyGranted = errors.New("already granted")
 )
 
-// Store persists Player progression entities (JSON file).
+// Store persists Player progression entities (JSON file or Redis document).
 type Store struct {
 	mu   sync.Mutex
-	path string
+	st   storage
 	data db
+}
+
+type storage interface {
+	load() (db, error)
+	save(db) error
+}
+
+type fileStorage struct {
+	path string
+}
+
+func (f *fileStorage) load() (db, error) {
+	b, err := os.ReadFile(f.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return emptyDB(), nil
+		}
+		return db{}, err
+	}
+	var d db
+	if err := json.Unmarshal(b, &d); err != nil {
+		return db{}, err
+	}
+	normalizeDB(&d)
+	return d, nil
+}
+
+func (f *fileStorage) save(d db) error {
+	b, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := f.path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, f.path)
 }
 
 type db struct {
@@ -41,27 +78,25 @@ type db struct {
 
 // Open loads or creates a JSON store at path.
 func Open(path string) (*Store, error) {
-	s := &Store{path: path}
-	s.data = emptyDB()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
 		return nil, err
 	}
-	b, err := os.ReadFile(path)
+	return openWith(&fileStorage{path: path})
+}
+
+func openWith(st storage) (*Store, error) {
+	s := &Store{st: st}
+	d, err := st.load()
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return nil, err
-		}
-		if err := s.ensureSeasonLocked(time.Now()); err != nil {
-			return nil, err
-		}
-		return s, s.saveLocked()
-	}
-	if err := json.Unmarshal(b, &s.data); err != nil {
 		return nil, err
 	}
-	normalizeDB(&s.data)
+	s.data = d
+	before := len(s.data.Seasons)
 	if err := s.ensureSeasonLocked(time.Now()); err != nil {
 		return nil, err
+	}
+	if len(s.data.Seasons) > before {
+		return s, s.saveLocked()
 	}
 	return s, nil
 }
@@ -104,15 +139,7 @@ func normalizeDB(d *db) {
 }
 
 func (s *Store) saveLocked() error {
-	b, err := json.MarshalIndent(s.data, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return s.st.save(s.data)
 }
 
 func invKey(playerID, sku string) string   { return playerID + "|" + sku }

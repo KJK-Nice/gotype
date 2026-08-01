@@ -18,7 +18,7 @@ type App struct {
 	Shop     *shop.Service
 }
 
-// OpenApp opens the JSON store and services. path empty → GOTYPE_DATA_DIR or OS temp.
+// OpenApp opens persistence (REDIS_URL preferred) and services.
 func OpenApp(path string) (*App, error) {
 	if path == "" {
 		path = os.Getenv("GOTYPE_DATA_DIR")
@@ -28,7 +28,7 @@ func OpenApp(path string) (*App, error) {
 	} else if fi, err := os.Stat(path); err == nil && fi.IsDir() {
 		path = filepath.Join(path, "data.json")
 	}
-	store, err := persist.Open(path)
+	store, err := persist.OpenFromEnv(path)
 	if err != nil {
 		return nil, err
 	}

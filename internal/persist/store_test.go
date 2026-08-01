@@ -7,12 +7,8 @@ import (
 	"time"
 )
 
-func TestStoreRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "data.json")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+func runStoreRoundTrip(t *testing.T, s *Store) {
+	t.Helper()
 	now := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
 	se, err := s.CurrentSeason(now)
 	if err != nil || se.ID < 1 {
@@ -25,68 +21,10 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err := s.AddInventory("p1", "heart", 2); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := s2.GetPlayer("p1")
-	if err != nil || got.Name != "Neo" {
-		t.Fatalf("%+v %v", got, err)
-	}
-	if s2.InventoryQty("p1", "heart") != 2 {
-		t.Fatal("inventory not persisted")
-	}
 }
 
-func TestOpenNormalizesNilMaps(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "partial.json")
-	// Partial / null maps as an older or hand-edited DB might produce.
-	raw := []byte(`{
-  "players": {"p1": {"id":"p1","name":"Neo","name_key":"neo","claim_hash":"x"}},
-  "by_name": {"neo":"p1"},
-  "inventory": null,
-  "equipment": null,
-  "progress": null,
-  "orders": null,
-  "daily": null
-}`)
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Writes that previously panicked on nil maps.
-	if err := s.AddInventory("p1", "heart", 1); err != nil {
-		t.Fatalf("AddInventory: %v", err)
-	}
-	if err := s.CreatePlayer(Player{ID: "p2", Name: "Trinity", NameKey: "trinity", ClaimHash: "y", CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatalf("CreatePlayer: %v", err)
-	}
-	if err := s.Equip("p1", "theme", "matrix"); err != nil {
-		t.Fatalf("Equip: %v", err)
-	}
-	if err := s.SaveOrder(Order{ID: "ord_1", PlayerID: "p1", SKU: "heart", State: OrderCreated, CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatalf("SaveOrder: %v", err)
-	}
-	if _, err := s.GetOrCreateProgress("p1", 1); err != nil {
-		t.Fatalf("GetOrCreateProgress: %v", err)
-	}
-	if err := s.SetDailyXP("p1", "2026-07-31", 10); err != nil {
-		t.Fatalf("SetDailyXP: %v", err)
-	}
-	if s.InventoryQty("p1", "heart") != 1 {
-		t.Fatal("expected inventory after nil-map normalize")
-	}
-}
-
-func TestGrantPaidOrderIdempotent(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "data.json")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+func runGrantPaidOrderIdempotent(t *testing.T, s *Store) {
+	t.Helper()
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	if err := s.CreatePlayer(Player{ID: "p1", Name: "Neo", NameKey: "neo", ClaimHash: "x", CreatedAt: now}); err != nil {
 		t.Fatal(err)
@@ -108,12 +46,8 @@ func TestGrantPaidOrderIdempotent(t *testing.T) {
 	}
 }
 
-func TestApplyRewardClaimsIdempotent(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "data.json")
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+func runApplyRewardClaimsIdempotent(t *testing.T, s *Store) {
+	t.Helper()
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	if err := s.CreatePlayer(Player{ID: "p1", Name: "Neo", NameKey: "neo", ClaimHash: "x", CreatedAt: now}); err != nil {
 		t.Fatal(err)
@@ -143,4 +77,83 @@ func TestApplyRewardClaimsIdempotent(t *testing.T) {
 	if len(p2.ClaimedFree) != 1 {
 		t.Fatalf("claimed_free=%v", p2.ClaimedFree)
 	}
+}
+
+func TestStoreRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.json")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runStoreRoundTrip(t, s)
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s2.GetPlayer("p1")
+	if err != nil || got.Name != "Neo" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if s2.InventoryQty("p1", "heart") != 2 {
+		t.Fatal("inventory not persisted")
+	}
+}
+
+func TestOpenNormalizesNilMaps(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "partial.json")
+	raw := []byte(`{
+  "players": {"p1": {"id":"p1","name":"Neo","name_key":"neo","claim_hash":"x"}},
+  "by_name": {"neo":"p1"},
+  "inventory": null,
+  "equipment": null,
+  "progress": null,
+  "orders": null,
+  "daily": null
+}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddInventory("p1", "heart", 1); err != nil {
+		t.Fatalf("AddInventory: %v", err)
+	}
+	if err := s.CreatePlayer(Player{ID: "p2", Name: "Trinity", NameKey: "trinity", ClaimHash: "y", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("CreatePlayer: %v", err)
+	}
+	if err := s.Equip("p1", "theme", "matrix"); err != nil {
+		t.Fatalf("Equip: %v", err)
+	}
+	if err := s.SaveOrder(Order{ID: "ord_1", PlayerID: "p1", SKU: "heart", State: OrderCreated, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("SaveOrder: %v", err)
+	}
+	if _, err := s.GetOrCreateProgress("p1", 1); err != nil {
+		t.Fatalf("GetOrCreateProgress: %v", err)
+	}
+	if err := s.SetDailyXP("p1", "2026-07-31", 10); err != nil {
+		t.Fatalf("SetDailyXP: %v", err)
+	}
+	if s.InventoryQty("p1", "heart") != 1 {
+		t.Fatal("expected inventory after nil-map normalize")
+	}
+}
+
+func TestGrantPaidOrderIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.json")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGrantPaidOrderIdempotent(t, s)
+}
+
+func TestApplyRewardClaimsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.json")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runApplyRewardClaimsIdempotent(t, s)
 }

@@ -444,7 +444,7 @@ func (m Model) viewShop() string {
 	}
 	if m.app != nil && !shop.ShopConfigured() {
 		b.WriteString("\n")
-		b.WriteString(m.sty.Sub.Render("set PHOENIXD_URL + PHOENIXD_PASSWORD to Buy"))
+		b.WriteString(m.sty.Sub.Render("set PHOENIXD_URL + PHOENIXD_PASSWORD for tip + Buy"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
