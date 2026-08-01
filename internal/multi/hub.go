@@ -144,11 +144,39 @@ var (
 	ErrNoLiveRace    = errors.New("no live race")
 )
 
-// Hub is an in-process multiplayer matchmaker (one Railway replica).
+// Hub is a multiplayer matchmaker; state lives in Redis when REDIS_URL is set.
 type Hub struct {
 	mu       sync.Mutex
 	rooms    map[string]*Room
 	byPlayer map[string]string
+	redis    *hubRedisStore
+}
+
+func (h *Hub) locked(fn func() error) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for range 12 {
+		var prev map[string]struct{}
+		if h.redis != nil {
+			var err error
+			prev, err = h.redis.loadInto(h)
+			if err != nil {
+				return err
+			}
+		}
+		if err := fn(); err != nil {
+			return err
+		}
+		if h.redis == nil {
+			return nil
+		}
+		if err := h.redis.saveFrom(h, prev); err == nil {
+			return nil
+		} else if !errors.Is(err, errHubConflict) {
+			return err
+		}
+	}
+	return fmt.Errorf("hub: save retries exhausted")
 }
 
 func NewHub() *Hub {
@@ -165,279 +193,308 @@ func NewPlayerID() string {
 }
 
 func (h *Hub) Create(playerID, name string, cfg game.Config) (View, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, ok := h.byPlayer[playerID]; ok {
-		return View{}, ErrAlreadyInRoom
-	}
-	if name == "" {
-		name = "player"
-	}
-	code := h.uniqueCodeLocked()
-	room := &Room{
-		Code:   code,
-		Config: cfg,
-		HostID: playerID,
-		Phase:  PhaseLobby,
-		Players: map[string]*Player{
-			playerID: {
-				ID:       playerID,
-				Name:     name,
-				IsHost:   true,
-				JoinedAt: time.Now(),
+	var view View
+	err := h.locked(func() error {
+		if _, ok := h.byPlayer[playerID]; ok {
+			return ErrAlreadyInRoom
+		}
+		if name == "" {
+			name = "player"
+		}
+		code := h.uniqueCodeLocked()
+		room := &Room{
+			Code:   code,
+			Config: cfg,
+			HostID: playerID,
+			Phase:  PhaseLobby,
+			Players: map[string]*Player{
+				playerID: {
+					ID:       playerID,
+					Name:     name,
+					IsHost:   true,
+					JoinedAt: time.Now(),
+				},
 			},
-		},
-	}
-	h.rooms[code] = room
-	h.byPlayer[playerID] = code
-	return h.viewLocked(room, playerID, time.Now()), nil
+		}
+		h.rooms[code] = room
+		h.byPlayer[playerID] = code
+		view = h.viewLocked(room, playerID, time.Now())
+		return nil
+	})
+	return view, err
 }
 
 func (h *Hub) Join(playerID, name, code string) (View, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, ok := h.byPlayer[playerID]; ok {
-		return View{}, ErrAlreadyInRoom
-	}
-	code = normalizeCode(code)
-	room, ok := h.rooms[code]
-	if !ok {
-		return View{}, ErrRoomNotFound
-	}
-	now := time.Now()
-	h.tickBotsLocked(room, now)
-	h.advanceLocked(room, now)
-
-	spectate := room.Phase == PhaseCountdown || room.Phase == PhaseRacing
-	if spectate {
-		if spectatorCountLocked(room) >= MaxSpectators {
-			return View{}, ErrRoomFull
+	var view View
+	err := h.locked(func() error {
+		if _, ok := h.byPlayer[playerID]; ok {
+			return ErrAlreadyInRoom
 		}
-	} else if room.Phase != PhaseLobby && room.Phase != PhaseDone {
-		return View{}, ErrBadPhase
-	} else if racerCountLocked(room) >= MaxPlayers {
-		return View{}, ErrRoomFull
-	}
+		code = normalizeCode(code)
+		room, ok := h.rooms[code]
+		if !ok {
+			return ErrRoomNotFound
+		}
+		now := time.Now()
+		h.tickBotsLocked(room, now)
+		h.advanceLocked(room, now)
 
-	if name == "" {
-		name = "player"
-	}
-	name = uniqueNameLocked(room, name, playerID)
-	room.Players[playerID] = &Player{
-		ID:        playerID,
-		Name:      name,
-		Spectator: spectate,
-		JoinedAt:  now,
-	}
-	h.byPlayer[playerID] = code
-	return h.viewLocked(room, playerID, now), nil
+		spectate := room.Phase == PhaseCountdown || room.Phase == PhaseRacing
+		if spectate {
+			if spectatorCountLocked(room) >= MaxSpectators {
+				return ErrRoomFull
+			}
+		} else if room.Phase != PhaseLobby && room.Phase != PhaseDone {
+			return ErrBadPhase
+		} else if racerCountLocked(room) >= MaxPlayers {
+			return ErrRoomFull
+		}
+
+		if name == "" {
+			name = "player"
+		}
+		name = uniqueNameLocked(room, name, playerID)
+		room.Players[playerID] = &Player{
+			ID:        playerID,
+			Name:      name,
+			Spectator: spectate,
+			JoinedAt:  now,
+		}
+		h.byPlayer[playerID] = code
+		view = h.viewLocked(room, playerID, now)
+		return nil
+	})
+	return view, err
 }
 
 // SpectateLive joins the busiest live race as a spectator, or the looping DEMO room.
 func (h *Hub) SpectateLive(playerID, name string, now time.Time) (View, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, ok := h.byPlayer[playerID]; ok {
-		return View{}, ErrAlreadyInRoom
-	}
-	room := h.pickLiveRoomLocked(now)
-	if room == nil {
-		room = h.ensureDemoLocked(now)
-	}
-	if spectatorCountLocked(room) >= MaxSpectators {
-		return View{}, ErrRoomFull
-	}
-	if name == "" {
-		name = "viewer"
-	}
-	name = uniqueNameLocked(room, name, playerID)
-	room.Players[playerID] = &Player{
-		ID:        playerID,
-		Name:      name,
-		Spectator: true,
-		JoinedAt:  now,
-	}
-	h.byPlayer[playerID] = room.Code
-	return h.viewLocked(room, playerID, now), nil
+	var view View
+	err := h.locked(func() error {
+		if _, ok := h.byPlayer[playerID]; ok {
+			return ErrAlreadyInRoom
+		}
+		room := h.pickLiveRoomLocked(now)
+		if room == nil {
+			room = h.ensureDemoLocked(now)
+		}
+		if spectatorCountLocked(room) >= MaxSpectators {
+			return ErrRoomFull
+		}
+		if name == "" {
+			name = "viewer"
+		}
+		name = uniqueNameLocked(room, name, playerID)
+		room.Players[playerID] = &Player{
+			ID:        playerID,
+			Name:      name,
+			Spectator: true,
+			JoinedAt:  now,
+		}
+		h.byPlayer[playerID] = room.Code
+		view = h.viewLocked(room, playerID, now)
+		return nil
+	})
+	return view, err
 }
 
 func (h *Hub) Leave(playerID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	code, ok := h.byPlayer[playerID]
-	if !ok {
-		return
-	}
-	delete(h.byPlayer, playerID)
-	room := h.rooms[code]
-	if room == nil {
-		return
-	}
-	delete(room.Players, playerID)
-	if len(room.Players) == 0 {
-		delete(h.rooms, code)
-		return
-	}
-	if room.Code != DemoCode && humanCountLocked(room) == 0 {
-		delete(h.rooms, code)
-		return
-	}
-	if room.HostID == playerID {
-		var next *Player
-		for _, p := range room.Players {
-			if p.Spectator || p.Bot {
-				continue
-			}
-			if next == nil || p.JoinedAt.Before(next.JoinedAt) {
-				next = p
-			}
+	_ = h.locked(func() error {
+		code, ok := h.byPlayer[playerID]
+		if !ok {
+			return nil
 		}
-		if next == nil {
+		delete(h.byPlayer, playerID)
+		room := h.rooms[code]
+		if room == nil {
+			return nil
+		}
+		delete(room.Players, playerID)
+		if len(room.Players) == 0 {
+			delete(h.rooms, code)
+			return nil
+		}
+		if room.Code != DemoCode && humanCountLocked(room) == 0 {
+			delete(h.rooms, code)
+			return nil
+		}
+		if room.HostID == playerID {
+			var next *Player
 			for _, p := range room.Players {
+				if p.Spectator || p.Bot {
+					continue
+				}
 				if next == nil || p.JoinedAt.Before(next.JoinedAt) {
 					next = p
 				}
 			}
+			if next == nil {
+				for _, p := range room.Players {
+					if next == nil || p.JoinedAt.Before(next.JoinedAt) {
+						next = p
+					}
+				}
+			}
+			if next != nil {
+				room.HostID = next.ID
+				next.IsHost = true
+			}
 		}
-		if next != nil {
-			room.HostID = next.ID
-			next.IsHost = true
-		}
-	}
+		return nil
+	})
 }
 
 // SetThreeStrike toggles hardcore (Three-Strike) in lobby only; host only.
 func (h *Hub) SetThreeStrike(playerID string, on bool) (View, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	room, err := h.roomForLocked(playerID)
-	if err != nil {
-		return View{}, err
-	}
-	if room.Phase != PhaseLobby {
-		return View{}, ErrBadPhase
-	}
-	if room.HostID != playerID {
-		return View{}, ErrNotHost
-	}
-	room.Config.ThreeStrike = on
-	return h.viewLocked(room, playerID, time.Now()), nil
+	var view View
+	err := h.locked(func() error {
+		room, err := h.roomForLocked(playerID)
+		if err != nil {
+			return err
+		}
+		if room.Phase != PhaseLobby {
+			return ErrBadPhase
+		}
+		if room.HostID != playerID {
+			return ErrNotHost
+		}
+		room.Config.ThreeStrike = on
+		view = h.viewLocked(room, playerID, time.Now())
+		return nil
+	})
+	return view, err
 }
 
 func (h *Hub) Start(playerID string, now time.Time) (View, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	room, err := h.roomForLocked(playerID)
-	if err != nil {
-		return View{}, err
-	}
-	if room.HostID != playerID {
-		return View{}, ErrNotHost
-	}
-	if room.Phase != PhaseLobby {
-		return View{}, ErrBadPhase
-	}
-	if racerCountLocked(room) < MinPlayers {
-		return View{}, ErrNotEnough
-	}
-	var seed uint64
-	if room.Config.Daily {
-		seed = words.DailySeed(now)
-	} else {
-		var err error
-		seed, err = randomSeed()
+	var view View
+	err := h.locked(func() error {
+		room, err := h.roomForLocked(playerID)
 		if err != nil {
-			return View{}, err
+			return err
 		}
-	}
-	room.Seed = seed
-	room.Phase = PhaseCountdown
-	room.CountdownEnds = now.Add(CountdownSecs * time.Second)
-	room.Scored = false
-	return h.viewLocked(room, playerID, now), nil
+		if room.HostID != playerID {
+			return ErrNotHost
+		}
+		if room.Phase != PhaseLobby {
+			return ErrBadPhase
+		}
+		if racerCountLocked(room) < MinPlayers {
+			return ErrNotEnough
+		}
+		var seed uint64
+		if room.Config.Daily {
+			seed = words.DailySeed(now)
+		} else {
+			seed, err = randomSeed()
+			if err != nil {
+				return err
+			}
+		}
+		room.Seed = seed
+		room.Phase = PhaseCountdown
+		room.CountdownEnds = now.Add(CountdownSecs * time.Second)
+		room.Scored = false
+		view = h.viewLocked(room, playerID, now)
+		return nil
+	})
+	return view, err
 }
 
 // Rematch resets a finished race back to lobby. Clears series if match already won.
 func (h *Hub) Rematch(playerID string, now time.Time) (View, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	room, err := h.roomForLocked(playerID)
-	if err != nil {
-		return View{}, err
-	}
-	if room.Phase != PhaseDone {
-		return View{}, ErrNotDone
-	}
-	if room.MatchOver {
-		for _, p := range room.Players {
-			p.MatchWins = 0
-			p.Streak = 0
+	var view View
+	err := h.locked(func() error {
+		room, err := h.roomForLocked(playerID)
+		if err != nil {
+			return err
 		}
-		room.MatchOver = false
-		room.MatchWinnerID = ""
-		room.LastRaceWinnerID = ""
-		room.RacesPlayed = 0
-	}
-	room.Phase = PhaseLobby
-	room.Seed = 0
-	room.CountdownEnds = time.Time{}
-	room.RaceStarted = time.Time{}
-	room.RaceEnds = time.Time{}
-	room.Scored = false
-	for _, p := range room.Players {
-		p.Prog = Progress{}
-		p.Ready = false
-	}
-	return h.viewLocked(room, playerID, now), nil
+		if room.Phase != PhaseDone {
+			return ErrNotDone
+		}
+		if room.MatchOver {
+			for _, p := range room.Players {
+				p.MatchWins = 0
+				p.Streak = 0
+			}
+			room.MatchOver = false
+			room.MatchWinnerID = ""
+			room.LastRaceWinnerID = ""
+			room.RacesPlayed = 0
+		}
+		room.Phase = PhaseLobby
+		room.Seed = 0
+		room.CountdownEnds = time.Time{}
+		room.RaceStarted = time.Time{}
+		room.RaceEnds = time.Time{}
+		room.Scored = false
+		for _, p := range room.Players {
+			p.Prog = Progress{}
+			p.Ready = false
+		}
+		view = h.viewLocked(room, playerID, now)
+		return nil
+	})
+	return view, err
 }
 
 func (h *Hub) Say(playerID, text string) (View, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	room, err := h.roomForLocked(playerID)
-	if err != nil {
-		return View{}, err
-	}
-	p := room.Players[playerID]
-	if p == nil {
-		return View{}, ErrRoomNotFound
-	}
-	text = normalizeChat(text)
-	if text == "" {
-		return View{}, ErrEmptyChat
-	}
-	room.Chat = append(room.Chat, ChatLine{Name: p.Name, Text: text})
-	if len(room.Chat) > maxChatLines {
-		room.Chat = room.Chat[len(room.Chat)-maxChatLines:]
-	}
-	return h.viewLocked(room, playerID, time.Now()), nil
+	var view View
+	err := h.locked(func() error {
+		room, err := h.roomForLocked(playerID)
+		if err != nil {
+			return err
+		}
+		p := room.Players[playerID]
+		if p == nil {
+			return ErrRoomNotFound
+		}
+		text = normalizeChat(text)
+		if text == "" {
+			return ErrEmptyChat
+		}
+		room.Chat = append(room.Chat, ChatLine{Name: p.Name, Text: text})
+		if len(room.Chat) > maxChatLines {
+			room.Chat = room.Chat[len(room.Chat)-maxChatLines:]
+		}
+		view = h.viewLocked(room, playerID, time.Now())
+		return nil
+	})
+	return view, err
 }
 
 func (h *Hub) Report(playerID string, prog Progress, now time.Time) View {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	room, err := h.roomForLocked(playerID)
-	if err != nil {
-		return View{Err: err.Error()}
-	}
-	if p := room.Players[playerID]; p != nil && !p.Spectator {
-		p.Prog = prog
-	}
-	h.tickBotsLocked(room, now)
-	h.advanceLocked(room, now)
-	return h.viewLocked(room, playerID, now)
+	var view View
+	_ = h.locked(func() error {
+		room, err := h.roomForLocked(playerID)
+		if err != nil {
+			view = View{Err: err.Error()}
+			return nil
+		}
+		if p := room.Players[playerID]; p != nil && !p.Spectator {
+			p.Prog = prog
+		}
+		h.tickBotsLocked(room, now)
+		h.advanceLocked(room, now)
+		view = h.viewLocked(room, playerID, now)
+		return nil
+	})
+	return view
 }
 
 func (h *Hub) Snapshot(playerID string, now time.Time) View {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	room, err := h.roomForLocked(playerID)
-	if err != nil {
-		return View{Err: err.Error()}
-	}
-	h.tickBotsLocked(room, now)
-	h.advanceLocked(room, now)
-	return h.viewLocked(room, playerID, now)
+	var view View
+	_ = h.locked(func() error {
+		room, err := h.roomForLocked(playerID)
+		if err != nil {
+			view = View{Err: err.Error()}
+			return nil
+		}
+		h.tickBotsLocked(room, now)
+		h.advanceLocked(room, now)
+		view = h.viewLocked(room, playerID, now)
+		return nil
+	})
+	return view
 }
 
 func (h *Hub) advanceLocked(room *Room, now time.Time) {

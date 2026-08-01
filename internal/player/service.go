@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/kjkusap/monkeytype-clone/internal/persist"
@@ -19,9 +18,8 @@ var (
 type Service struct {
 	Store *persist.Store
 
-	mu    sync.Mutex
-	hits  map[string][]time.Time // key → timestamps
-	limit int
+	limit  rateLimiter
+	limitN int
 	window time.Duration
 }
 
@@ -29,8 +27,8 @@ type Service struct {
 func NewService(store *persist.Store) *Service {
 	return &Service{
 		Store:  store,
-		hits:   map[string][]time.Time{},
-		limit:  10,
+		limit:  newRateLimiterFromEnv(),
+		limitN: 10,
 		window: time.Minute,
 	}
 }
@@ -122,34 +120,11 @@ func (s *Service) Claim(name, claimCode, ip, sessionID string, now time.Time) (p
 }
 
 func (s *Service) allow(key string, now time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	keep := s.trimLocked(key, now)
-	if len(keep) >= s.limit {
-		s.hits[key] = keep
-		return ErrRateLimited
-	}
-	s.hits[key] = append(keep, now)
-	return nil
+	return s.limit.allow(key, now, s.limitN, s.window)
 }
 
 func (s *Service) limited(key string, now time.Time) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	keep := s.trimLocked(key, now)
-	s.hits[key] = keep
-	return len(keep) >= s.limit
-}
-
-func (s *Service) trimLocked(key string, now time.Time) []time.Time {
-	cut := now.Add(-s.window)
-	var keep []time.Time
-	for _, t := range s.hits[key] {
-		if t.After(cut) {
-			keep = append(keep, t)
-		}
-	}
-	return keep
+	return s.limit.limited(key, now, s.limitN, s.window)
 }
 
 func newID() (string, error) {

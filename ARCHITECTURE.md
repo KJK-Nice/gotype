@@ -23,7 +23,16 @@ flowchart TB
   MT -->|PHOENIXD_URL internal| PX
 ```
 
-Each SSH session gets its own Bubble Tea program. One process-wide `App` (store + services) is shared across sessions on a replica. Multiplayer lobbies live in an in-process `Hub` (not persisted).
+Each SSH session gets its own Bubble Tea program. `gotype-ssh` replicas are **stateless**: they hold only Redis clients, not Player or lobby data. `App` and `Hub` read/write Redis on every operation so you can scale `mtype-ssh` horizontally when `REDIS_URL` is set.
+
+```mermaid
+flowchart LR
+  R1[mtype-ssh replica A]
+  R2[mtype-ssh replica B]
+  RD[(Redis)]
+  R1 --> RD
+  R2 --> RD
+```
 
 ## Binaries
 
@@ -38,7 +47,7 @@ Each SSH session gets its own Bubble Tea program. One process-wide `App` (store 
 cmd/gotype-ssh
   └── internal/ui          Bubble Tea model, screens, input
         ├── internal/game  Race engine, Three-Strike, WPM/accuracy
-        ├── internal/multi In-memory matchmaking hub
+        ├── internal/multi Redis-backed matchmaking hub
         ├── internal/player   Register / claim / session
         ├── internal/progress XP, Season Pass, rewards
         ├── internal/shop     Buy orders + Lightning invoicing
@@ -61,8 +70,9 @@ cmd/gotype-ssh
 
 ### Multiplayer (`internal/multi`)
 
-- In-process hub: rooms, ready state, countdown, shared prompts.
-- Ephemeral — lost on restart or scale-out. Not in Redis.
+- Hub rooms stored in Redis when `REDIS_URL` is set (`gotype:hub:room:{code}` + room index set).
+- Per-room optimistic locking (`WATCH` / retry) so concurrent updates from multiple replicas stay consistent.
+- Without `REDIS_URL`, hub falls back to in-memory maps (local dev / tests only).
 
 ### Progression
 
@@ -80,7 +90,20 @@ Player-facing state is a single JSON document:
 - **Production:** Redis key `gotype:data` via `REDIS_URL`
 - **Local dev:** file at `GOTYPE_DATA_DIR/data.json`, or OS temp if unset
 
-Backend is pluggable (`fileStorage` / `redisStorage`); the in-memory `db` shape and `Store` API are unchanged.
+Backend is pluggable (`fileStorage` / `redisStorage`).
+
+**Redis mode (production):** no in-process document cache. Each `Store` method loads the JSON blob, mutates, and saves inside a Redis `WATCH` transaction (retries on conflict). Safe across replicas.
+
+**File mode (local dev):** in-memory cache + `sync.Mutex`; unchanged behavior for tests.
+
+### Redis keys
+
+| Key | Purpose |
+|-----|---------|
+| `gotype:data` | Player progression document (override prefix via `GOTYPE_REDIS_KEY`) |
+| `gotype:hub:rooms` | Set of active room codes |
+| `gotype:hub:room:{code}` | Room JSON blob |
+| `gotype:ratelimit:{key}` | Register/claim rate-limit windows |
 
 ### Entities in the document
 
@@ -94,9 +117,9 @@ Backend is pluggable (`fileStorage` / `redisStorage`); the in-memory `db` shape 
 | Orders | `orders[id]` | shop Buy lifecycle |
 | Daily XP | `playerID\|YYYY-MM-DD` | soft cap tracking |
 
-Writes are process-serialized (`sync.Mutex`) and flush the full document. Multi-key updates (e.g. `GrantPaidOrder`, `ApplyRewardClaims`) stay atomic within one save.
+Writes are atomic within one Redis transaction. Multi-key updates (e.g. `GrantPaidOrder`, `ApplyRewardClaims`) stay consistent on a single replica; cross-replica conflicts retry via `WATCH`.
 
-Optional: `GOTYPE_REDIS_KEY` overrides the Redis key (default `gotype:data`).
+Optional: `GOTYPE_REDIS_KEY` overrides the key prefix (default `gotype`).
 
 ## Lightning
 
@@ -115,7 +138,7 @@ Phoenixd runs as a separate Railway service with a persistent volume for its see
 
 | Service | Purpose |
 |---------|---------|
-| **mtype-ssh** | App: SSH + HTTP, reads `REDIS_URL`, talks to Phoenixd over private network |
+| **mtype-ssh** | Stateless app: SSH + HTTP; scale replicas when `REDIS_URL` is set |
 | **Redis** | Managed database; `REDIS_URL` referenced into mtype-ssh |
 | **Phoenixd** | Lightning receive node; `PHOENIXD_URL=http://phoenixd.railway.internal:9740` |
 

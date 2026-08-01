@@ -27,7 +27,7 @@ import (
 	"github.com/kjkusap/monkeytype-clone/internal/ui"
 )
 
-// sharedApp is process-wide progression store (one Railway replica).
+// sharedApp wires Redis-backed services once per process (stateless replicas).
 var sharedApp *ui.App
 
 func main() {
@@ -49,7 +49,11 @@ func main() {
 		fp = envFP
 	}
 
-	hub := multi.NewHub()
+	hub, err := multi.NewHubFromEnv()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gotype-ssh: hub: %v\n", err)
+		os.Exit(1)
+	}
 	app, err := ui.OpenApp("")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gotype-ssh: data store: %v\n", err)
