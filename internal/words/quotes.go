@@ -80,7 +80,7 @@ func quotesFor(qlen QuoteLen) []Quote {
 	return out
 }
 
-// StoicQuotes is the default quote race pack (philosophy / stoic).
+// StoicQuotes is the default quote race pack (philosophy, stoic, and wisdom).
 var StoicQuotes = []Quote{
 	// short
 	{Text: "You have power over your mind not outside events. Realize this, and you will find strength.", Author: "Marcus Aurelius"},
@@ -99,6 +99,17 @@ var StoicQuotes = []Quote{
 	{Text: "How long are you going to wait before you demand the best for yourself?", Author: "Epictetus"},
 	{Text: "Difficulties strengthen the mind, as labor does the body.", Author: "Seneca"},
 
+	// Naval Ravikant & modern wisdom (short)
+	{Text: "Play long-term games with long-term people.", Author: "Naval Ravikant"},
+	{Text: "Earn with your mind, not your time.", Author: "Naval Ravikant"},
+	{Text: "Read what you love until you love to read.", Author: "Naval Ravikant"},
+	{Text: "Seek wealth, not money or status.", Author: "Naval Ravikant"},
+	{Text: "Impatience with actions, patience with results.", Author: "Naval Ravikant"},
+	{Text: "Make something people want.", Author: "Paul Graham"},
+	{Text: "The obstacle is the way.", Author: "Ryan Holiday"},
+	{Text: "We are what we repeatedly do. Excellence, then, is not an act but a habit.", Author: "Will Durant"},
+	{Text: "Simplicity is the ultimate sophistication.", Author: "Leonardo da Vinci"},
+
 	// medium
 	{Text: "When you arise in the morning, think of what a privilege it is to be alive, to think, to enjoy, to love. Then set your hands to what is yours to do, and leave the rest.", Author: "Marcus Aurelius"},
 	{Text: "Men are disturbed not by things, but by the views which they take of them. Therefore when we are hindered or disturbed or grieved, let us never blame others, but ourselves.", Author: "Epictetus"},
@@ -111,6 +122,16 @@ var StoicQuotes = []Quote{
 	{Text: "As long as you live, keep learning how to live. It takes a whole life to learn how to live, and a whole life to learn how to die.", Author: "Seneca"},
 	{Text: "Do not act as if you were going to live ten thousand years. Death hangs over you. While you live, while it is in your power, be good.", Author: "Marcus Aurelius"},
 
+	{Text: "Desire is a contract you make with yourself to be unhappy until you get what you want.", Author: "Naval Ravikant"},
+	{Text: "If you can't see yourself working with someone for life, don't work with them for a day.", Author: "Naval Ravikant"},
+	{Text: "A fit body, a calm mind, a house full of love. These things cannot be bought — they must be earned.", Author: "Naval Ravikant"},
+	{Text: "You're not going to get rich renting out your time. You must own equity to gain your financial freedom.", Author: "Naval Ravikant"},
+	{Text: "All the returns in life, whether in wealth, relationships, or knowledge, come from compound interest.", Author: "Naval Ravikant"},
+	{Text: "The way to get startup ideas is not to try to think of startup ideas. It's to look for problems, preferably problems you have yourself.", Author: "Paul Graham"},
+	{Text: "It is not the man who has too little, but the man who craves more, that is poor.", Author: "Seneca"},
+	{Text: "He who has a why to live can bear almost any how.", Author: "Friedrich Nietzsche"},
+	{Text: "The only way to do great work is to love what you do. If you haven't found it yet, keep looking. Don't settle.", Author: "Steve Jobs"},
+
 	// long
 	{Text: "You could leave life right now. Let that determine what you do and say and think. If you work at that which is before you, following right reason seriously, vigorously, calmly, without allowing anything else to distract you, you will live happily. And there is no one who can prevent this.", Author: "Marcus Aurelius"},
 	{Text: "There is only one way to happiness and that is to cease worrying about things which are beyond the power of our will. Demand not that events should happen as you wish, but wish them to happen as they do happen, and you will go on well.", Author: "Epictetus"},
@@ -118,4 +139,10 @@ var StoicQuotes = []Quote{
 	{Text: "At dawn, when you have trouble getting out of bed, tell yourself: I have to go to work as a human being. What do I have to complain of, if I am going to do what I was born for, the things I was brought into the world to do? Or is this what I was created for, to huddle under the blankets and stay warm?", Author: "Marcus Aurelius"},
 	{Text: "Remember that it is not he who gives abuse or blows who insults, but the view we take of these things as insulting. When therefore a man gives you abuse, remember to say to yourself that it is your opinion which is the insult.", Author: "Epictetus"},
 	{Text: "Let us prepare our minds as if we had come to the very end of life. Let us postpone nothing. Let us balance life's books each day. The one who puts the finishing touches on their life each day is never short of time.", Author: "Seneca"},
+
+	{Text: "How to get rich without getting lucky: seek wealth, not money or status. Wealth is assets that earn while you sleep. Money is how we transfer wealth. Status is your place in the social hierarchy. You're not going to get rich renting out your time. You must own equity to gain your financial freedom.", Author: "Naval Ravikant"},
+	{Text: "The modern struggle: lone individuals summoning inhuman willpower, fasting, meditating, and exercising, up against armies of scientists and statisticians weaponizing abundant food, screens, and medicines into dopamine traps.", Author: "Naval Ravikant"},
+	{Text: "Arm yourself with specific knowledge, accountability, and leverage. Specific knowledge is knowledge you care about. If you are not fully into it, somebody else who is will outperform you. They do not have to be smarter. They just have to be more focused.", Author: "Naval Ravikant"},
+	{Text: "In the long run, optimism is the only realism. Pessimists sound smart, optimists make money. The world is built by optimists who believe the future will be better and then work to make it so.", Author: "Naval Ravikant"},
+	{Text: "The best time to plant a tree was twenty years ago. The second best time is now.", Author: "Chinese proverb"},
 }
