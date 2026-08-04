@@ -116,9 +116,11 @@ type Model struct {
 
 	tipPhase     tipPhase
 	tipAmountIdx int
+	tipID        string
 	tipBolt11    string
 	tipQR        string
 	tipErr       string
+	tipTracked   bool
 
 	autoSpectate bool
 
@@ -310,7 +312,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tipMsg:
-		m.tipLoadingDone(msg)
+		if c := m.tipLoadingDone(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+		return m, tea.Batch(cmds...)
+
+	case tipPollMsg:
+		if c := m.applyTipPoll(msg); c != nil {
+			cmds = append(cmds, c)
+		}
 		return m, tea.Batch(cmds...)
 
 	case claimMsg:
@@ -527,27 +537,7 @@ func indexInt(n int, opts []int) int {
 	return 1
 }
 
-func (m *Model) tipLoadingDone(msg tipMsg) {
-	if msg.err != "" {
-		m.tipPhase = tipShow
-		m.tipErr = msg.err
-		m.tipBolt11 = ""
-		m.tipQR = ""
-		return
-	}
-	m.tipPhase = tipShow
-	m.tipErr = ""
-	m.tipBolt11 = msg.bolt11
-	m.tipQR = msg.qr
-	if msg.sats > 0 {
-		for i, s := range ln.DefaultAmounts {
-			if s == msg.sats {
-				m.tipAmountIdx = i
-				break
-			}
-		}
-	}
-}
+// tipLoadingDone lives in tip.go
 
 // startTest begins a solo session.
 func (m *Model) startTest() tea.Cmd {
@@ -681,8 +671,10 @@ func (m Model) updateResult(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if ln.Configured() {
 			m.tipPhase = tipPick
 			m.tipErr = ""
+			m.tipID = ""
 			m.tipBolt11 = ""
 			m.tipQR = ""
+			m.tipTracked = false
 			m.tipList = newTipList()
 			m.tipList.Select(m.tipAmountIdx)
 		}

@@ -25,6 +25,9 @@ func TestPhoenixdCreateAndPoll(t *testing.T) {
 		if r.Form.Get("externalId") != "ord_1" {
 			t.Errorf("externalId=%q", r.Form.Get("externalId"))
 		}
+		if r.Form.Get("webhookUrl") != "https://example.com/ln/webhook" {
+			t.Errorf("webhookUrl=%q", r.Form.Get("webhookUrl"))
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"amountSat":   21,
 			"paymentHash": "hash1",
@@ -44,7 +47,11 @@ func TestPhoenixdCreateAndPoll(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	c := NewPhoenixdClient(PhoenixdConfig{BaseURL: srv.URL, Password: "secret"})
+	c := NewPhoenixdClient(PhoenixdConfig{
+		BaseURL:    srv.URL,
+		Password:   "secret",
+		WebhookURL: "https://example.com/ln/webhook",
+	})
 	inv, err := c.CreateInbound(context.Background(), 21, "test", "ord_1", 900)
 	if err != nil {
 		t.Fatal(err)

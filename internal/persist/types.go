@@ -78,3 +78,23 @@ type DailyXP struct {
 	Day      string `json:"day"` // YYYY-MM-DD UTC
 	XP       int    `json:"xp"`
 }
+
+// TipState is the Tip settle machine (voluntary sats to the operator).
+type TipState string
+
+const (
+	TipPending TipState = "pending"
+	TipPaid    TipState = "paid"
+)
+
+// TipIntent is a server-tracked Tip correlated to a Lightning invoice until paid.
+type TipIntent struct {
+	ID          string    `json:"id"`
+	Sats        int       `json:"sats"`
+	State       TipState  `json:"state"`
+	Bolt11      string    `json:"bolt11,omitempty"`
+	PaymentHash string    `json:"payment_hash,omitempty"`
+	CheckingID  string    `json:"checking_id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	PaidAt      time.Time `json:"paid_at,omitempty"`
+}

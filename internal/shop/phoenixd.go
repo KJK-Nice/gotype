@@ -14,19 +14,22 @@ import (
 
 // PhoenixdConfig from environment.
 type PhoenixdConfig struct {
-	BaseURL  string // e.g. http://phoenixd.railway.internal:9740
-	Password string // HTTP API password (Basic auth, empty username)
+	BaseURL    string // e.g. http://phoenixd.railway.internal:9740
+	Password   string // HTTP API password (Basic auth, empty username)
+	WebhookURL string // per-invoice webhookUrl (empty = omit)
 }
 
-// PhoenixdFromEnv reads PHOENIXD_URL + PHOENIXD_PASSWORD (or PHOENIXD_API_PASSWORD).
+// PhoenixdFromEnv reads PHOENIXD_URL + PHOENIXD_PASSWORD (or PHOENIXD_API_PASSWORD)
+// and optional GOTYPE_WEBHOOK_URL for payment_received callbacks.
 func PhoenixdFromEnv() PhoenixdConfig {
 	pass := strings.TrimSpace(os.Getenv("PHOENIXD_PASSWORD"))
 	if pass == "" {
 		pass = strings.TrimSpace(os.Getenv("PHOENIXD_API_PASSWORD"))
 	}
 	return PhoenixdConfig{
-		BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("PHOENIXD_URL")), "/"),
-		Password: pass,
+		BaseURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("PHOENIXD_URL")), "/"),
+		Password:   pass,
+		WebhookURL: strings.TrimSpace(os.Getenv("GOTYPE_WEBHOOK_URL")),
 	}
 }
 
@@ -49,7 +52,9 @@ func NewPhoenixdClient(cfg PhoenixdConfig) *PhoenixdClient {
 }
 
 // CreateInbound POSTs /createinvoice (form-urlencoded, Basic auth).
-func (c *PhoenixdClient) CreateInbound(ctx context.Context, sats int, memo, orderID string, expirySec int) (CreatedInvoice, error) {
+// externalID is stored as Phoenixd externalId (Order id or Tip id).
+// When Cfg.WebhookURL is set, it is passed as webhookUrl for payment_received push.
+func (c *PhoenixdClient) CreateInbound(ctx context.Context, sats int, memo, externalID string, expirySec int) (CreatedInvoice, error) {
 	if !c.Cfg.Configured() {
 		return CreatedInvoice{}, fmt.Errorf("set PHOENIXD_URL and PHOENIXD_PASSWORD")
 	}
@@ -63,8 +68,11 @@ func (c *PhoenixdClient) CreateInbound(ctx context.Context, sats int, memo, orde
 	form.Set("amountSat", fmt.Sprintf("%d", sats))
 	form.Set("description", memo)
 	form.Set("expirySeconds", fmt.Sprintf("%d", expirySec))
-	if orderID != "" {
-		form.Set("externalId", orderID)
+	if externalID != "" {
+		form.Set("externalId", externalID)
+	}
+	if c.Cfg.WebhookURL != "" {
+		form.Set("webhookUrl", c.Cfg.WebhookURL)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Cfg.BaseURL+"/createinvoice", strings.NewReader(form.Encode()))
 	if err != nil {

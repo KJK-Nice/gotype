@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/kjkusap/monkeytype-clone/internal/shop"
 )
@@ -35,57 +34,6 @@ func tipDestination() string {
 		return a
 	}
 	return strings.TrimSpace(os.Getenv("TIP_LNURL"))
-}
-
-// Invoice is a payable bolt11 tip.
-type Invoice struct {
-	Bolt11 string
-	Sats   int
-}
-
-// CreateInvoice returns a bolt11 tip invoice via Phoenixd (preferred) or LNURL-pay.
-func CreateInvoice(ctx context.Context, sats int, comment string) (Invoice, error) {
-	if sats <= 0 {
-		return Invoice{}, fmt.Errorf("sats must be positive")
-	}
-	if cfg := shop.PhoenixdFromEnv(); cfg.Configured() {
-		created, err := shop.NewPhoenixdClient(cfg).CreateInbound(ctx, sats, comment, "", 15*60)
-		if err != nil {
-			return Invoice{}, err
-		}
-		return Invoice{Bolt11: created.PaymentRequest, Sats: sats}, nil
-	}
-	dest := tipDestination()
-	if dest == "" {
-		return Invoice{}, fmt.Errorf("set PHOENIXD_URL + PHOENIXD_PASSWORD or TIP_LIGHTNING_ADDRESS or TIP_LNURL")
-	}
-
-	payURL, err := resolvePayURL(dest)
-	if err != nil {
-		return Invoice{}, err
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
-	defer cancel()
-
-	params, err := fetchPayParams(ctx, payURL)
-	if err != nil {
-		return Invoice{}, err
-	}
-
-	msat := int64(sats) * 1000
-	if params.MinSendable > 0 && msat < params.MinSendable {
-		return Invoice{}, fmt.Errorf("min tip is %d sats", params.MinSendable/1000)
-	}
-	if params.MaxSendable > 0 && msat > params.MaxSendable {
-		return Invoice{}, fmt.Errorf("max tip is %d sats", params.MaxSendable/1000)
-	}
-
-	pr, err := fetchInvoice(ctx, params.Callback, msat, comment, params.CommentAllowed)
-	if err != nil {
-		return Invoice{}, err
-	}
-	return Invoice{Bolt11: pr, Sats: sats}, nil
 }
 
 func resolvePayURL(dest string) (string, error) {

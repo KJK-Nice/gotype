@@ -153,6 +153,10 @@ func helpTipShow() phaseKeyMap {
 	return km(bind("esc/enter", "esc", "back"))
 }
 
+func helpTipThanks() phaseKeyMap {
+	return km(bind("esc/enter", "esc", "back"))
+}
+
 func helpChat() phaseKeyMap {
 	return km(
 		bind("enter", "enter", "send"),

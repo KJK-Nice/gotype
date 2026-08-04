@@ -57,7 +57,7 @@ Soft progression points earned from finishing solo or multi races, subject to a 
 _Avoid_: points, score (for progression)
 
 **Tip**:
-A voluntary sats payment to the operator via LNURL-pay / bolt11 (existing). Not a shop purchase.
+A voluntary sats payment to the operator via Phoenixd bolt11 (preferred) or LNURL-pay fallback. Not a shop purchase. Phoenixd Tips are tracked as TipIntents until settled.
 _Avoid_: donation (in product copy if Tip is the term)
 
 **Buy**:
