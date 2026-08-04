@@ -20,7 +20,27 @@ func (m Model) updateMultiMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "esc":
 		m.phase = phaseConfig
-	case "c", "enter":
+		return m, nil
+	case "c":
+		m.multiMenuList.Select(0)
+		return m.execMultiAction("create")
+	case "j":
+		m.multiMenuList.Select(1)
+		return m.execMultiAction("join")
+	case "d":
+		m.multiMenuList.Select(2)
+		return m.execMultiAction("demo")
+	case "enter":
+		return m.execMultiAction(selectedAction(m.multiMenuList))
+	}
+	var cmd tea.Cmd
+	m.multiMenuList, cmd = m.multiMenuList.Update(msg)
+	return m, cmd
+}
+
+func (m Model) execMultiAction(action string) (Model, tea.Cmd) {
+	switch action {
+	case "create":
 		v, err := m.hub.Create(m.playerID, m.playerName, m.cfg)
 		if err != nil {
 			m.statusErr = err.Error()
@@ -30,12 +50,12 @@ func (m Model) updateMultiMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.statusErr = ""
 		m.phase = phaseLobby
 		m.multiView = v
-	case "j":
+	case "join":
 		m.joinTI.SetValue("")
 		m.statusErr = ""
 		m.phase = phaseJoin
 		return m, m.joinTI.Focus()
-	case "d":
+	case "demo":
 		v, err := m.hub.SpectateLive(m.playerID, m.playerName, m.now)
 		if err != nil {
 			m.statusErr = err.Error()
@@ -379,41 +399,27 @@ func (m *Model) applyMultiView(v multi.View) {
 }
 
 func (m Model) viewMultiMenu() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("multiplayer"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("race friends · best of 3"))
-	b.WriteString("\n\n")
-	b.WriteString(m.sty.Selected.Render("c"))
-	b.WriteString(m.sty.Text.Render(" create room"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Selected.Render("j"))
-	b.WriteString(m.sty.Text.Render(" join room"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Selected.Render("d"))
-	b.WriteString(m.sty.Text.Render(" spectate live / demo"))
-	b.WriteString("\n\n")
-	if m.statusErr != "" {
-		b.WriteString(m.sty.Incorrect.Render(m.statusErr))
-		b.WriteString("\n\n")
-	}
-	b.WriteString(m.renderHelp(helpMultiMenu()))
-	return b.String()
+	var body strings.Builder
+	body.WriteString(m.multiMenuList.View())
+	return m.renderScreen(Screen{
+		Title:    "multiplayer",
+		Subtitle: "race friends · best of 3",
+		Body:     body.String(),
+		Status:   m.statusErr,
+		Keys:     helpMultiMenu(),
+	})
 }
 
 func (m Model) viewJoin() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("join room"))
-	b.WriteString("\n\n")
-	b.WriteString(m.sty.Sub.Render("code  "))
-	b.WriteString(m.sty.Main.Render(m.joinTI.View()))
-	b.WriteString("\n\n")
-	if m.statusErr != "" {
-		b.WriteString(m.sty.Incorrect.Render(m.statusErr))
-		b.WriteString("\n\n")
-	}
-	b.WriteString(m.renderHelp(helpJoin()))
-	return b.String()
+	var body strings.Builder
+	body.WriteString(m.sty.Sub.Render("code  "))
+	body.WriteString(m.joinTI.View())
+	return m.renderScreen(Screen{
+		Title:  "join room",
+		Body:   body.String(),
+		Status: m.statusErr,
+		Keys:   helpJoin(),
+	})
 }
 
 func (m Model) viewChat() string {

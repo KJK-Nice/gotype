@@ -134,9 +134,12 @@ type Model struct {
 	claimShown  string
 
 	prog       progSurface
-	shopIdx    int
-	equipIdx   int
-	buyOrder   persist.Order
+	shopList      list.Model
+	invList       list.Model
+	equipList     list.Model
+	multiMenuList list.Model
+	claimList     list.Model
+	buyOrder      persist.Order
 	buyQR      string
 	buyErr     string
 	lastXPLine string
@@ -194,6 +197,7 @@ func NewWithOptions(opts Options) Model {
 	}
 	m.initBubbles()
 	m.initClaimInputs()
+	m.applyBubblesTheme()
 	return m
 }
 
@@ -273,8 +277,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.help.SetWidth(max(20, m.width-4))
 		m.chatVP.SetWidth(min(48, max(20, m.width-8)))
-		m.tipList.SetWidth(min(36, max(20, m.width-8)))
 		m.podiumTable.SetWidth(min(48, max(24, m.width-8)))
+		m.syncListSizes()
 		return m, tea.Batch(cmds...)
 
 	case tickMsg:
@@ -440,6 +444,7 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "u":
 		m.themeIdx = (m.themeIdx + 1) % ThemeCount()
 		m.sty = NewStyles(m.themeIdx)
+		m.applyBubblesTheme()
 		m.raceBars = nil // rebuild with new theme colors
 	case "c":
 		m.openClaim()

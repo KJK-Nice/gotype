@@ -61,6 +61,7 @@ func (m Model) updateClaim(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc":
 			m.clearClaimUI()
+			return m, nil
 		case "r":
 			m.claimMode = claimRegisterName
 			m.claimErr = ""
@@ -71,7 +72,21 @@ func (m Model) updateClaim(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.claimNameTI.Focus()
 		case "q":
 			return m, tea.Quit
+		case "enter":
+			switch selectedAction(m.claimList) {
+			case "register":
+				m.claimMode = claimRegisterName
+				m.claimErr = ""
+				return m, m.claimNameTI.Focus()
+			case "reclaim":
+				m.claimMode = claimReclaimName
+				m.claimErr = ""
+				return m, m.claimNameTI.Focus()
+			}
 		}
+		var cmd tea.Cmd
+		m.claimList, cmd = m.claimList.Update(msg)
+		return m, cmd
 	case claimRegisterName:
 		switch msg.String() {
 		case "esc":
@@ -174,54 +189,64 @@ func (m *Model) applyClaimMsg(msg claimMsg) {
 }
 
 func (m Model) viewClaim() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("claim player"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("persisted name + Claim Code · no recovery if lost"))
-	b.WriteString("\n\n")
 	switch m.claimMode {
 	case claimPick:
-		b.WriteString(m.sty.Text.Render("r  register new Player"))
-		b.WriteString("\n")
-		b.WriteString(m.sty.Text.Render("c  reclaim with Claim Code"))
-		b.WriteString("\n\n")
-		b.WriteString(m.renderHelp(km(bind("esc", "esc", "back"))))
+		var body strings.Builder
+		body.WriteString(m.claimList.View())
+		return m.renderScreen(Screen{
+			Title:    "claim player",
+			Subtitle: "persisted name + Claim Code",
+			Meta:     "no recovery if code is lost",
+			Body:     body.String(),
+			Status:   m.claimErr,
+			Keys:     km(bind("enter", "enter", "select"), bind("esc", "esc", "back")),
+		})
 	case claimRegisterName:
-		b.WriteString(m.sty.Sub.Render("choose display name (3–16)"))
-		b.WriteString("\n")
-		b.WriteString(m.claimNameTI.View())
-		b.WriteString("\n\n")
-		if m.claimErr != "" {
-			b.WriteString(m.sty.Incorrect.Render(m.claimErr))
-			b.WriteString("\n\n")
-		}
-		b.WriteString(m.renderHelp(km(bind("enter", "enter", "create"), bind("esc", "esc", "back"))))
+		var body strings.Builder
+		body.WriteString(m.sty.Sub.Render("choose display name (3–16)"))
+		body.WriteString("\n")
+		body.WriteString(m.claimNameTI.View())
+		return m.renderScreen(Screen{
+			Title:  "register",
+			Body:   body.String(),
+			Status: m.claimErr,
+			Keys:   km(bind("enter", "enter", "create"), bind("esc", "esc", "back")),
+		})
 	case claimRegisterShow:
-		b.WriteString(m.sty.Main.Render("save your Claim Code — shown once"))
-		b.WriteString("\n\n")
-		b.WriteString(m.sty.Title.Render(m.claimShown))
-		b.WriteString("\n\n")
-		b.WriteString(m.sty.Incorrect.Render("lose this → new Player (no recovery v1)"))
-		b.WriteString("\n\n")
-		b.WriteString(m.renderHelp(km(bind("enter", "enter", "done"))))
+		var body strings.Builder
+		body.WriteString(m.sty.Main.Render("save your Claim Code — shown once"))
+		body.WriteString("\n\n")
+		body.WriteString(m.sty.Title.Render(m.claimShown))
+		body.WriteString("\n\n")
+		body.WriteString(m.sty.Incorrect.Render("lose this → new Player (no recovery v1)"))
+		return m.renderScreen(Screen{
+			Title: "registered",
+			Body:  body.String(),
+			Keys:  km(bind("enter", "enter", "done")),
+		})
 	case claimReclaimName:
-		b.WriteString(m.sty.Sub.Render("name"))
-		b.WriteString("\n")
-		b.WriteString(m.claimNameTI.View())
-		b.WriteString("\n\n")
-		b.WriteString(m.renderHelp(km(bind("enter", "enter", "next"), bind("esc", "esc", "back"))))
+		var body strings.Builder
+		body.WriteString(m.sty.Sub.Render("name"))
+		body.WriteString("\n")
+		body.WriteString(m.claimNameTI.View())
+		return m.renderScreen(Screen{
+			Title: "reclaim",
+			Body:  body.String(),
+			Keys:  km(bind("enter", "enter", "next"), bind("esc", "esc", "back")),
+		})
 	case claimReclaimCode:
-		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("Claim Code for %s", m.claimNameTI.Value())))
-		b.WriteString("\n")
-		b.WriteString(m.claimCodeTI.View())
-		b.WriteString("\n\n")
-		if m.claimErr != "" {
-			b.WriteString(m.sty.Incorrect.Render(m.claimErr))
-			b.WriteString("\n\n")
-		}
-		b.WriteString(m.renderHelp(km(bind("enter", "enter", "claim"), bind("esc", "esc", "back"))))
+		var body strings.Builder
+		body.WriteString(m.sty.Sub.Render(fmt.Sprintf("Claim Code for %s", m.claimNameTI.Value())))
+		body.WriteString("\n")
+		body.WriteString(m.claimCodeTI.View())
+		return m.renderScreen(Screen{
+			Title:  "reclaim",
+			Body:   body.String(),
+			Status: m.claimErr,
+			Keys:   km(bind("enter", "enter", "claim"), bind("esc", "esc", "back")),
+		})
 	}
-	return b.String()
+	return ""
 }
 
 func (m Model) isClaimed() bool {

@@ -65,9 +65,8 @@ func (m Model) helpConfig() phaseKeyMap {
 
 func helpMultiMenu() phaseKeyMap {
 	return km(
-		bind("c/enter", "c", "create"),
-		bind("j", "j", "join"),
-		bind("d", "d", "demo"),
+		bind("enter", "enter", "select"),
+		bind("c/j/d", "c/j/d", "shortcut"),
 		bind("esc", "esc", "back"),
 		bind("q", "q", "quit"),
 	)
@@ -209,29 +208,16 @@ func newSpinner() spinner.Model {
 func newTipList() list.Model {
 	items := make([]list.Item, 0, len(ln.DefaultAmounts))
 	for _, n := range ln.DefaultAmounts {
-		items = append(items, tipItem{sats: n})
+		items = append(items, menuItem{
+			title:  fmt.Sprintf("%d sats", n),
+			desc:   "lightning tip",
+			action: strconv.Itoa(n),
+		})
 	}
-	delegate := list.NewDefaultDelegate()
-	delegate.ShowDescription = false
-	delegate.SetHeight(1)
-	delegate.SetSpacing(0)
-	l := list.New(items, delegate, 28, 8)
-	l.Title = "amount"
-	l.SetShowStatusBar(false)
-	l.SetShowFilter(false)
-	l.SetShowHelp(false)
-	l.SetShowPagination(false)
-	l.DisableQuitKeybindings()
+	l := newMenuList(28, 8, "amount", nil)
+	l.SetItems(items)
 	return l
 }
-
-type tipItem struct {
-	sats int
-}
-
-func (t tipItem) FilterValue() string { return strconv.Itoa(t.sats) }
-func (t tipItem) Title() string       { return fmt.Sprintf("%d sats", t.sats) }
-func (t tipItem) Description() string { return "" }
 
 func newPodiumTable() table.Model {
 	cols := []table.Column{
@@ -308,6 +294,27 @@ func (m *Model) initBubbles() {
 	m.tipList = newTipList()
 	m.podiumTable = newPodiumTable()
 	m.chatVP = newChatViewport()
+	w, h := m.listSize()
+	m.shopList = newMenuList(w, h, "", nil)
+	m.invList = newMenuList(w, h, "", nil)
+	m.equipList = newMenuList(w, min(8, h), "", nil)
+	m.multiMenuList = newMultiMenuList()
+	m.claimList = newClaimList()
+}
+
+func (m *Model) applyBubblesTheme() {
+	m.sty.ApplyHelp(&m.help)
+	m.sty.ApplyTextInput(&m.joinTI)
+	m.sty.ApplyTextInput(&m.chatTI)
+	m.sty.ApplyTextInput(&m.claimNameTI)
+	m.sty.ApplyTextInput(&m.claimCodeTI)
+	m.sty.ApplyList(&m.tipList)
+	m.sty.ApplyList(&m.shopList)
+	m.sty.ApplyList(&m.invList)
+	m.sty.ApplyList(&m.equipList)
+	m.sty.ApplyList(&m.multiMenuList)
+	m.sty.ApplyList(&m.claimList)
+	m.sty.ApplyTable(&m.podiumTable)
 }
 
 func (m *Model) startCountdownTimer(left time.Duration) tea.Cmd {
