@@ -27,6 +27,8 @@ Two binaries (see `ARCHITECTURE.md`):
 
 No Redis needed for local dev — persistence falls back to a JSON file at `$GOTYPE_DATA_DIR/data.json` (OS temp dir if `GOTYPE_DATA_DIR` unset). `REDIS_URL`, `PHOENIXD_*`, and roast API keys are production-only and optional; the app runs fully without them (roasts use local canned lines).
 
+Lightning settle (prod): set `GOTYPE_WEBHOOK_URL` (full URL to `/ln/webhook` reachable from Phoenixd) and matching `PHOENIXD_WEBHOOK_SECRET` on both `gotype-ssh` and Phoenixd (`--webhook-secret`). Webhook is a hint; Buy/Tip always re-confirm via Phoenixd poll before grant/mark-paid. See `ARCHITECTURE.md` Lightning section.
+
 ### Known time-dependent test failure
 
 `TestGrantFinishAndMatrixUnlock` in `internal/progress` is a pre-existing, wall-clock-dependent test — not an environment problem. It hardcodes simulated dates (`2026-07-31`..`2026-08-04`), while `internal/persist` seeds a season window from real `time.Now()` on store open. When today's date falls inside that simulated range, two overlapping seasons exist and Go's randomized map iteration splits XP across them, so tier 10 (Matrix reward) is never reached. All other packages pass.

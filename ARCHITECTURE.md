@@ -80,8 +80,9 @@ cmd/gotype-ssh
 |---------|----------------|
 | `internal/player` | Register, claim code verify, active session, rename |
 | `internal/progress` | XP grants, daily soft cap, Season Pass tier claims |
-| `internal/shop` | Buy flow: Order state machine → invoice → poll → grant |
+| `internal/shop` | Buy flow: Order state machine → invoice → webhook/poll → grant; Phoenixd webhook HMAC |
 | `internal/catalog` | Static SKU list, season track tiers, prices |
+| `internal/ln` | Tip invoices + TipIntent settle (Phoenixd webhook/poll; LNURL-pay fallback) |
 
 ## Persistence
 
@@ -127,10 +128,12 @@ Non-custodial **Tip** and **Buy** only — no in-TUI wallet.
 
 | Flow | Backend | Mechanism |
 |------|---------|-----------|
-| **Tip** | Phoenixd (preferred) or LNURL-pay | BOLT11 invoice + QR |
-| **Buy** | Phoenixd (preferred) or LNBits | BOLT11 invoice + poll `GET /payments/incoming/{hash}` |
+| **Tip** | Phoenixd (preferred) or LNURL-pay | BOLT11 + QR; Phoenixd tips persist a TipIntent (`tip_*`) and settle via webhook/poll |
+| **Buy** | Phoenixd | BOLT11 Order (`ord_*`) + webhook hint + poll confirm `GET /payments/incoming/{hash}` before grant |
 
-When `PHOENIXD_URL` + `PHOENIXD_PASSWORD` are set, both tip and shop use the same Phoenixd node. Shop grants fire after payment is observed paid.
+When `PHOENIXD_URL` + `PHOENIXD_PASSWORD` are set, both tip and shop use the same Phoenixd node.
+
+**Settle path:** Phoenixd POSTs `payment_received` to `GOTYPE_WEBHOOK_URL` (typically `https://…/ln/webhook` or Railway private `http://mtype-ssh.railway.internal:8080/ln/webhook`). Handler verifies `X-Phoenix-Signature` (HMAC-SHA256 with `PHOENIXD_WEBHOOK_SECRET`), re-checks paid via poll, then grants Inventory (Buy) or marks TipIntent paid (Tip). TUI also polls every 2s while waiting as backup. Webhook is a hint — never grant from the POST body alone.
 
 Phoenixd runs as a separate Railway service with a persistent volume for its seed. Inbound Lightning requires channel liquidity (on-chain swap-in or pay-to-open bootstrap).
 
@@ -160,7 +163,9 @@ Deploy: `railway.toml` → root `Dockerfile` builds `gotype-ssh`. Phoenixd uses 
 |----------|-------------|
 | `PHOENIXD_URL` | Phoenixd HTTP base URL |
 | `PHOENIXD_PASSWORD` / `PHOENIXD_API_PASSWORD` | HTTP Basic auth password |
-| `TIP_LIGHTNING_ADDRESS` / `TIP_LNURL` | Fallback tip destination if Phoenixd unset |
+| `GOTYPE_WEBHOOK_URL` | Full URL Phoenixd calls on settle (e.g. `…/ln/webhook`); passed as `webhookUrl` on createinvoice |
+| `PHOENIXD_WEBHOOK_SECRET` | Shared HMAC secret (`X-Phoenix-Signature`); must match phoenixd `--webhook-secret` |
+| `TIP_LIGHTNING_ADDRESS` / `TIP_LNURL` | Fallback tip destination if Phoenixd unset (no TipIntent / no webhook) |
 
 ### SSH / deploy
 

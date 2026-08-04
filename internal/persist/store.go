@@ -70,6 +70,7 @@ type db struct {
 	Seasons    map[int]Season            `json:"seasons"`
 	Progress   map[string]SeasonProgress `json:"progress"`
 	Orders     map[string]Order          `json:"orders"`
+	Tips       map[string]TipIntent      `json:"tips"`
 	Daily      map[string]DailyXP        `json:"daily"`
 	NextSeason int                       `json:"next_season"`
 }
@@ -138,6 +139,9 @@ func normalizeDB(d *db) {
 	}
 	if d.Orders == nil {
 		d.Orders = map[string]Order{}
+	}
+	if d.Tips == nil {
+		d.Tips = map[string]TipIntent{}
 	}
 	if d.Daily == nil {
 		d.Daily = map[string]DailyXP{}
@@ -398,6 +402,21 @@ func (s *Store) GetOrder(id string) (Order, error) {
 	})
 }
 
+// FindOrderByPaymentHash returns an Order by payment hash / checking id.
+func (s *Store) FindOrderByPaymentHash(hash string) (Order, error) {
+	return queryStore(s, func(d *db) (Order, error) {
+		if hash == "" {
+			return Order{}, ErrNotFound
+		}
+		for _, o := range d.Orders {
+			if o.PaymentHash == hash || o.CheckingID == hash {
+				return o, nil
+			}
+		}
+		return Order{}, ErrNotFound
+	})
+}
+
 // GrantPaidOrder applies shop grant side-effects and marks the order granted in one save.
 func (s *Store) GrantPaidOrder(id string, now time.Time, sku string, qty int, unlockPremiumSeason int) (Order, error) {
 	var out Order
@@ -502,6 +521,61 @@ func (s *Store) ApplyRewardClaims(playerID string, seasonID int, freeTiers, prem
 		if !changed {
 			return errNoSave
 		}
+		return nil
+	})
+	return out, err
+}
+
+// SaveTip upserts a TipIntent.
+func (s *Store) SaveTip(t TipIntent) error {
+	return s.mutate(func(d *db) error {
+		d.Tips[t.ID] = t
+		return nil
+	})
+}
+
+// GetTip returns a TipIntent by id.
+func (s *Store) GetTip(id string) (TipIntent, error) {
+	return queryStore(s, func(d *db) (TipIntent, error) {
+		t, ok := d.Tips[id]
+		if !ok {
+			return TipIntent{}, ErrNotFound
+		}
+		return t, nil
+	})
+}
+
+// FindTipByPaymentHash returns a TipIntent by payment hash.
+func (s *Store) FindTipByPaymentHash(hash string) (TipIntent, error) {
+	return queryStore(s, func(d *db) (TipIntent, error) {
+		if hash == "" {
+			return TipIntent{}, ErrNotFound
+		}
+		for _, t := range d.Tips {
+			if t.PaymentHash == hash || t.CheckingID == hash {
+				return t, nil
+			}
+		}
+		return TipIntent{}, ErrNotFound
+	})
+}
+
+// MarkTipPaid sets TipIntent to paid (idempotent).
+func (s *Store) MarkTipPaid(id string, now time.Time) (TipIntent, error) {
+	var out TipIntent
+	err := s.mutate(func(d *db) error {
+		t, ok := d.Tips[id]
+		if !ok {
+			return ErrNotFound
+		}
+		if t.State == TipPaid {
+			out = t
+			return errNoSave
+		}
+		t.State = TipPaid
+		t.PaidAt = now.UTC()
+		d.Tips[id] = t
+		out = t
 		return nil
 	})
 	return out, err

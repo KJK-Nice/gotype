@@ -23,7 +23,10 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/kjkusap/monkeytype-clone/internal/invite"
+	"github.com/kjkusap/monkeytype-clone/internal/ln"
 	"github.com/kjkusap/monkeytype-clone/internal/multi"
+	"github.com/kjkusap/monkeytype-clone/internal/persist"
+	"github.com/kjkusap/monkeytype-clone/internal/shop"
 	"github.com/kjkusap/monkeytype-clone/internal/ui"
 )
 
@@ -102,8 +105,16 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.Handle(shop.WebhookPath, &shop.WebhookHandler{
+		Store:  app.Store,
+		Shop:   app.Shop,
+		Secret: shop.WebhookSecretFromEnv(),
+		Tips: shop.TipSettlerFunc(func(ctx context.Context, store *persist.Store, ev shop.PhoenixdWebhookEvent, now time.Time) (persist.TipIntent, error) {
+			return ln.SettleTipFromWebhook(ctx, store, ev, now)
+		}),
+	})
 	httpSrv := &http.Server{Addr: httpAddr, Handler: mux}
-	log.Info("Starting HTTP landing", "addr", httpAddr)
+	log.Info("Starting HTTP landing", "addr", httpAddr, "webhook", shop.WebhookPath)
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("Could not start HTTP server", "error", err)
