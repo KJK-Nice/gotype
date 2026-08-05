@@ -133,6 +133,9 @@ type Model struct {
 	claimErr    string
 	claimShown  string
 
+	claimWalletK1 string
+	claimWalletQR string
+
 	prog       progSurface
 	shopList      list.Model
 	invList       list.Model
@@ -327,6 +330,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case claimMsg:
 		m.applyClaimMsg(msg)
+		return m, tea.Batch(cmds...)
+
+	case walletStartMsg:
+		if c := m.applyWalletStart(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+		return m, tea.Batch(cmds...)
+
+	case walletPollMsg:
+		if c := m.applyWalletPoll(msg); c != nil {
+			cmds = append(cmds, c)
+		}
 		return m, tea.Batch(cmds...)
 
 	case buyMsg:

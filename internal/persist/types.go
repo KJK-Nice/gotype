@@ -8,6 +8,7 @@ type Player struct {
 	Name            string    `json:"name"`
 	NameKey         string    `json:"name_key"`
 	ClaimHash       string    `json:"claim_hash"`
+	LinkingKey      string    `json:"linking_key,omitempty"`
 	RenameUsed      bool      `json:"rename_used"`
 	ActiveSessionID string    `json:"active_session_id"`
 	CreatedAt       time.Time `json:"created_at"`

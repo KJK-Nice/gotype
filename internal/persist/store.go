@@ -15,7 +15,8 @@ var (
 	ErrNameTaken      = errors.New("name taken")
 	ErrAlreadyOwns    = errors.New("already owned this season")
 	ErrBadState       = errors.New("bad order state")
-	ErrAlreadyGranted = errors.New("already granted")
+	ErrAlreadyGranted  = errors.New("already granted")
+	ErrLinkingKeyTaken = errors.New("linking key taken")
 )
 
 // Store persists Player progression entities (JSON file or Redis document).
@@ -64,7 +65,8 @@ func (f *fileStorage) save(d db) error {
 
 type db struct {
 	Players    map[string]Player         `json:"players"`
-	ByName     map[string]string         `json:"by_name"`
+	ByName       map[string]string         `json:"by_name"`
+	ByLinkingKey map[string]string         `json:"by_linking_key"`
 	Inventory  map[string]InventoryItem  `json:"inventory"`
 	Equipment  map[string]Equipment      `json:"equipment"`
 	Seasons    map[int]Season            `json:"seasons"`
@@ -124,6 +126,9 @@ func normalizeDB(d *db) {
 	if d.ByName == nil {
 		d.ByName = map[string]string{}
 	}
+	if d.ByLinkingKey == nil {
+		d.ByLinkingKey = map[string]string{}
+	}
 	if d.Inventory == nil {
 		d.Inventory = map[string]InventoryItem{}
 	}
@@ -181,18 +186,30 @@ func (s *Store) CurrentSeason(now time.Time) (Season, error) {
 	return out, err
 }
 
+func (s *Store) indexPlayer(d *db, p Player) error {
+	if _, ok := d.ByName[p.NameKey]; ok {
+		return ErrNameTaken
+	}
+	if p.LinkingKey != "" {
+		if _, ok := d.ByLinkingKey[p.LinkingKey]; ok {
+			return ErrLinkingKeyTaken
+		}
+	}
+	if _, ok := d.Players[p.ID]; ok {
+		return fmt.Errorf("player id exists")
+	}
+	d.Players[p.ID] = p
+	d.ByName[p.NameKey] = p.ID
+	if p.LinkingKey != "" {
+		d.ByLinkingKey[p.LinkingKey] = p.ID
+	}
+	return nil
+}
+
 // CreatePlayer inserts a new Player (name unique case-insensitive).
 func (s *Store) CreatePlayer(p Player) error {
 	return s.mutate(func(d *db) error {
-		if _, ok := d.ByName[p.NameKey]; ok {
-			return ErrNameTaken
-		}
-		if _, ok := d.Players[p.ID]; ok {
-			return fmt.Errorf("player id exists")
-		}
-		d.Players[p.ID] = p
-		d.ByName[p.NameKey] = p.ID
-		return nil
+		return s.indexPlayer(d, p)
 	})
 }
 
@@ -215,6 +232,43 @@ func (s *Store) GetPlayerByNameKey(key string) (Player, error) {
 			return Player{}, ErrNotFound
 		}
 		return d.Players[id], nil
+	})
+}
+
+// GetPlayerByLinkingKey looks up by wallet linking key.
+func (s *Store) GetPlayerByLinkingKey(linkingKey string) (Player, error) {
+	return queryStore(s, func(d *db) (Player, error) {
+		id, ok := d.ByLinkingKey[linkingKey]
+		if !ok {
+			return Player{}, ErrNotFound
+		}
+		return d.Players[id], nil
+	})
+}
+
+// SetLinkingKey attaches a wallet linking key to an existing Player.
+func (s *Store) SetLinkingKey(playerID, linkingKey string) error {
+	return s.mutate(func(d *db) error {
+		if linkingKey == "" {
+			return fmt.Errorf("linking key required")
+		}
+		if owner, ok := d.ByLinkingKey[linkingKey]; ok && owner != playerID {
+			return ErrLinkingKeyTaken
+		}
+		p, ok := d.Players[playerID]
+		if !ok {
+			return ErrNotFound
+		}
+		if p.LinkingKey != "" && p.LinkingKey != linkingKey {
+			return fmt.Errorf("wallet already linked")
+		}
+		if p.LinkingKey == linkingKey {
+			return nil
+		}
+		p.LinkingKey = linkingKey
+		d.Players[playerID] = p
+		d.ByLinkingKey[linkingKey] = playerID
+		return nil
 	})
 }
 
