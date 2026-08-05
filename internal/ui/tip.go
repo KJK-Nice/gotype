@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -35,10 +36,12 @@ func (m *Model) clearTip() {
 }
 
 func (m Model) tipSats() int {
-	amts := ln.DefaultAmounts
-	if item, ok := m.tipList.SelectedItem().(tipItem); ok {
-		return item.sats
+	if it, ok := m.tipList.SelectedItem().(menuItem); ok {
+		if n, err := strconv.Atoi(it.action); err == nil {
+			return n
+		}
 	}
+	amts := ln.DefaultAmounts
 	if m.tipAmountIdx < 0 || m.tipAmountIdx >= len(amts) {
 		return amts[0]
 	}
@@ -102,39 +105,38 @@ func (m Model) tipInvoiceCmd() tea.Cmd {
 }
 
 func (m Model) viewTip() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("tip"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("lightning sats · " + ln.Destination()))
-	b.WriteString("\n\n")
-
 	switch m.tipPhase {
 	case tipPick:
-		b.WriteString(m.tipList.View())
-		b.WriteString("\n")
-		b.WriteString(m.renderHelp(helpTipPick()))
+		var body strings.Builder
+		body.WriteString(m.tipList.View())
+		return m.renderScreen(Screen{
+			Title:    "tip",
+			Subtitle: "lightning sats",
+			Meta:     ln.Destination(),
+			Body:     body.String(),
+			Keys:     helpTipPick(),
+		})
 	case tipLoading:
-		b.WriteString(m.sty.Sub.Render(m.spin.View() + fmt.Sprintf(" fetching %d sat invoice…", m.tipSats())))
-		b.WriteString("\n\n")
-		b.WriteString(m.renderHelp(helpTipLoading()))
+		return m.renderPayment(PaymentView{
+			Title:   "tip",
+			Sats:    m.tipSats(),
+			Spinner: m.spin.View(),
+			Status:  fmt.Sprintf("fetching %d sat invoice…", m.tipSats()),
+		}, helpTipLoading())
 	case tipShow:
 		if m.tipErr != "" {
-			b.WriteString(m.sty.Incorrect.Render(m.tipErr))
-			b.WriteString("\n\n")
-			b.WriteString(m.renderHelp(helpTipShow()))
-			return b.String()
+			return m.renderPayment(PaymentView{
+				Title: "tip",
+				Err:   m.tipErr,
+			}, helpTipShow())
 		}
-		b.WriteString(m.sty.Main.Render(fmt.Sprintf("%d sats", m.tipSats())))
-		b.WriteString("\n")
-		b.WriteString(m.sty.Sub.Render("scan with a lightning wallet"))
-		b.WriteString("\n\n")
-		if m.tipQR != "" {
-			b.WriteString(m.tipQR)
-			b.WriteString("\n\n")
-		}
-		b.WriteString(m.sty.Sub.Render(ln.ShortBolt11(m.tipBolt11)))
-		b.WriteString("\n\n")
-		b.WriteString(m.renderHelp(helpTipShow()))
+		return m.renderPayment(PaymentView{
+			Title:    "tip",
+			Subtitle: "scan with a lightning wallet",
+			Sats:     m.tipSats(),
+			QR:       m.tipQR,
+			Bolt11:   m.tipBolt11,
+		}, helpTipShow())
 	}
-	return b.String()
+	return ""
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/key"
 
 	"github.com/kjkusap/monkeytype-clone/internal/catalog"
 	"github.com/kjkusap/monkeytype-clone/internal/ln"
@@ -19,7 +20,6 @@ type progSurface int
 
 const (
 	progNone progSurface = iota
-	progHub
 	progInventory
 	progShop
 	progPass
@@ -54,10 +54,9 @@ func (m *Model) openProg(s progSurface) {
 		return
 	}
 	m.prog = s
-	m.shopIdx = 0
-	m.equipIdx = 0
 	m.buyErr = ""
 	m.statusErr = ""
+	m.syncProgLists()
 }
 
 func (m Model) sessionActive() bool {
@@ -93,8 +92,7 @@ func (m Model) tryProgHotkey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if !m.progHotkeysActive() {
 		return m, nil, false
 	}
-	// When already on a surface (except buy wait), hotkeys still switch tabs.
-	if m.prog != progNone && m.prog != progHub {
+	if m.prog != progNone && m.prog != progBuyWait {
 		switch msg.String() {
 		case "i":
 			m.openProg(progInventory)
@@ -107,9 +105,6 @@ func (m Model) tryProgHotkey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		case "e":
 			m.openProg(progEquip)
-			return m, nil, true
-		case "h":
-			m.openProg(progHub)
 			return m, nil, true
 		}
 	}
@@ -118,7 +113,6 @@ func (m Model) tryProgHotkey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		m.openProg(progInventory)
 		return m, nil, true
 	case "s":
-		// Config used s? no. Lobby host uses s to start — not in progHotkeysActive.
 		m.openProg(progShop)
 		return m, nil, true
 	case "p":
@@ -127,97 +121,78 @@ func (m Model) tryProgHotkey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	case "e":
 		m.openProg(progEquip)
 		return m, nil, true
-	case "h":
-		m.openProg(progHub)
-		return m, nil, true
 	}
 	return m, nil, false
 }
 
+func (m Model) progKeys(extra ...key.Binding) phaseKeyMap {
+	b := []key.Binding{
+		bind("i/s/p/e", "i/s/p/e", "tabs"),
+		bind("esc", "esc", "close"),
+	}
+	b = append(b, extra...)
+	return km(b...)
+}
+
 func (m Model) updateProg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.prog {
-	case progHub:
-		switch msg.String() {
-		case "esc":
+	case progInventory, progShop, progEquip:
+		if msg.String() == "esc" {
 			m.clearProg()
-		case "i":
-			m.openProg(progInventory)
-		case "s":
-			m.openProg(progShop)
-		case "p":
-			m.openProg(progPass)
-		case "e":
-			m.openProg(progEquip)
-		case "q":
-			return m, tea.Quit
+			return m, nil
 		}
-	case progInventory:
-		switch msg.String() {
-		case "esc":
-			m.openProg(progHub)
-		case "e":
-			m.openProg(progEquip)
-		case "q":
-			return m, tea.Quit
-		}
-	case progShop:
-		items := catalog.ShopItems()
-		switch msg.String() {
-		case "esc":
-			m.openProg(progHub)
-		case "up", "k":
-			if m.shopIdx > 0 {
-				m.shopIdx--
-			}
-		case "down", "j":
-			if m.shopIdx < len(items)-1 {
-				m.shopIdx++
-			}
-		case "enter", " ":
-			if len(items) == 0 {
-				return m, nil
-			}
-			sku := items[m.shopIdx].SKU
-			m.prog = progBuyWait
-			m.buyErr = ""
-			return m, tea.Batch(m.buyCreateCmd(sku), m.spin.Tick)
-		case "q":
+		if msg.String() == "q" {
 			return m, tea.Quit
 		}
 	case progPass:
 		switch msg.String() {
 		case "esc":
-			m.openProg(progHub)
+			m.clearProg()
 		case "q":
 			return m, tea.Quit
 		}
-	case progEquip:
-		slots := []catalog.Slot{catalog.SlotTheme, catalog.SlotCaret, catalog.SlotTitle, catalog.SlotFX}
-		switch msg.String() {
-		case "esc":
-			m.openProg(progHub)
-		case "up", "k":
-			if m.equipIdx > 0 {
-				m.equipIdx--
-			}
-		case "down", "j":
-			if m.equipIdx < len(slots)-1 {
-				m.equipIdx++
-			}
-		case "enter", " ":
-			m.cycleEquip(slots[m.equipIdx])
-		case "q":
-			return m, tea.Quit
-		}
+		return m, nil
 	case progBuyWait:
 		switch msg.String() {
 		case "esc":
-			// Leave wait; invoice may still settle later.
 			m.clearProg()
 			m.openProg(progShop)
 		case "q":
 			return m, tea.Quit
 		}
+		return m, nil
+	}
+
+	switch m.prog {
+	case progShop:
+		if msg.String() == "enter" {
+			sku := selectedAction(m.shopList)
+			if sku == "" {
+				return m, nil
+			}
+			m.prog = progBuyWait
+			m.buyErr = ""
+			return m, tea.Batch(m.buyCreateCmd(sku), m.spin.Tick)
+		}
+		var cmd tea.Cmd
+		m.shopList, cmd = m.shopList.Update(msg)
+		return m, cmd
+	case progInventory:
+		var cmd tea.Cmd
+		m.invList, cmd = m.invList.Update(msg)
+		return m, cmd
+	case progEquip:
+		if msg.String() == "enter" {
+			slot := catalog.Slot(selectedAction(m.equipList))
+			if slot != "" {
+				m.cycleEquip(slot)
+				m.syncEquipList()
+			}
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.equipList, cmd = m.equipList.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -310,6 +285,7 @@ func (m *Model) applyBuyPoll(msg buyPollMsg) tea.Cmd {
 	m.buyOrder = msg.order
 	if msg.order.State == persist.OrderGranted {
 		m.buyErr = ""
+		m.syncInvList()
 		return nil
 	}
 	return m.buyPollCmd()
@@ -317,8 +293,6 @@ func (m *Model) applyBuyPoll(msg buyPollMsg) tea.Cmd {
 
 func (m Model) viewProg() string {
 	switch m.prog {
-	case progHub:
-		return m.viewProgHub()
 	case progInventory:
 		return m.viewInventory()
 	case progShop:
@@ -334,146 +308,79 @@ func (m Model) viewProg() string {
 	}
 }
 
-func (m Model) progTabs() string {
-	tab := func(key, label string, on bool) string {
-		s := fmt.Sprintf("[%s %s]", key, label)
-		if on {
-			return m.sty.Main.Render(s)
-		}
-		return m.sty.Sub.Render(s)
-	}
-	return strings.Join([]string{
-		tab("i", "inv", m.prog == progInventory),
-		tab("s", "shop", m.prog == progShop),
-		tab("p", "pass", m.prog == progPass),
-		tab("e", "equip", m.prog == progEquip),
-	}, "  ")
-}
-
-func (m Model) viewProgHub() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("progression hub"))
-	b.WriteString("  ")
-	b.WriteString(m.sty.Main.Render(m.playerName))
-	b.WriteString("\n")
-	b.WriteString(m.progTabs())
-	b.WriteString("\n\n")
-	b.WriteString(m.sty.Text.Render("i  inventory     cosmetics + consumables"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Text.Render("s  shop          sats Buy (LN invoice)"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Text.Render("p  season pass   free + premium tracks"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Text.Render("e  equip         theme/caret/title/fx"))
-	b.WriteString("\n\n")
-	b.WriteString(m.renderHelp(km(bind("esc", "esc", "back"))))
-	return b.String()
-}
-
 func (m Model) viewInventory() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("inventory"))
-	b.WriteString("\n")
-	b.WriteString(m.progTabs())
-	b.WriteString("\n\n")
-	if m.app == nil {
-		return b.String()
-	}
-	eq := map[string]string{}
-	for _, e := range m.app.Store.ListEquipment(m.claimedID) {
-		eq[e.Slot] = e.SKU
-	}
-	b.WriteString(m.sty.Sub.Render("Cosmetics"))
-	b.WriteString("\n")
-	for _, it := range catalog.NamedCosmetics() {
-		qty := m.app.Store.InventoryQty(m.claimedID, it.SKU)
-		mark := "  "
-		if eq[string(it.Slot)] == it.SKU {
-			mark = "★ "
-		}
-		line := fmt.Sprintf("  %s%-14s %s", mark, it.Name, it.Slot)
-		if qty < 1 {
-			line += "  (locked)"
-			b.WriteString(m.sty.Sub.Render(line))
-		} else {
-			b.WriteString(m.sty.Text.Render(line))
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("Consumables"))
-	b.WriteString("\n")
-	for _, it := range catalog.ShopItems() {
-		if it.Kind != catalog.KindConsumable {
-			continue
-		}
-		qty := m.app.Store.InventoryQty(m.claimedID, it.SKU)
-		b.WriteString(m.sty.Text.Render(fmt.Sprintf("  %-8s x%d", it.Name, qty)))
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-	b.WriteString(m.renderHelp(km(bind("e", "e", "equip"), bind("esc", "esc", "hub"))))
-	return b.String()
+	var body strings.Builder
+	body.WriteString(m.progTabBar())
+	body.WriteString("\n\n")
+	body.WriteString(m.invList.View())
+	return m.renderScreen(Screen{
+		Title:    "inventory",
+		Subtitle: "cosmetics + consumables",
+		Meta:     m.progMeta(),
+		Body:     body.String(),
+		Keys:     m.progKeys(bind("enter", "enter", "details")),
+	})
 }
 
 func (m Model) viewShop() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("shop"))
-	b.WriteString(m.sty.Sub.Render("  ·  sats (no credits)"))
-	b.WriteString("\n")
-	b.WriteString(m.progTabs())
-	b.WriteString("\n\n")
-	items := catalog.ShopItems()
-	for i, it := range items {
-		prefix := "  "
-		if i == m.shopIdx {
-			prefix = "> "
-		}
-		line := fmt.Sprintf("%s%-16s %4d sats", prefix, it.Name, it.Sats)
-		if i == m.shopIdx {
-			b.WriteString(m.sty.Main.Render(line))
-		} else {
-			b.WriteString(m.sty.Text.Render(line))
-		}
-		b.WriteString("\n")
-	}
-	if m.buyErr != "" {
-		b.WriteString("\n")
-		b.WriteString(m.sty.Incorrect.Render(m.buyErr))
-		b.WriteString("\n")
-	}
+	var body strings.Builder
+	body.WriteString(m.progTabBar())
+	body.WriteString("\n\n")
+	body.WriteString(m.shopList.View())
+	status := m.buyErr
 	if m.app != nil && !shop.ShopConfigured() {
-		b.WriteString("\n")
-		b.WriteString(m.sty.Sub.Render("set PHOENIXD_URL + PHOENIXD_PASSWORD for tip + Buy"))
-		b.WriteString("\n")
+		if status != "" {
+			status += " · "
+		}
+		status += "set PHOENIXD_URL + PHOENIXD_PASSWORD for tip + Buy"
 	}
-	b.WriteString("\n")
-	b.WriteString(m.renderHelp(km(bind("enter", "enter", "Buy"), bind("esc", "esc", "hub"))))
-	return b.String()
+	return m.renderScreen(Screen{
+		Title:    "shop",
+		Subtitle: "sats · lightning invoice",
+		Meta:     m.progMeta(),
+		Body:     body.String(),
+		Status:   status,
+		Keys:     m.progKeys(bind("enter", "enter", "Buy")),
+	})
 }
 
 func (m Model) viewPass() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("season pass"))
-	b.WriteString("\n")
-	b.WriteString(m.progTabs())
-	b.WriteString("\n\n")
+	var body strings.Builder
+	body.WriteString(m.progTabBar())
+	body.WriteString("\n\n")
 	if m.app == nil {
-		return b.String()
+		return m.renderScreen(Screen{Title: "season pass", Body: body.String(), Keys: m.progKeys()})
 	}
 	pv, err := m.app.Progress.ViewPass(m.claimedID, time.Now())
 	if err != nil {
-		b.WriteString(m.sty.Incorrect.Render(err.Error()))
-		return b.String()
+		return m.renderScreen(Screen{
+			Title:  "season pass",
+			Meta:   m.progMeta(),
+			Status: err.Error(),
+			Keys:   m.progKeys(),
+		})
 	}
-	prem := "OFF"
+	prem := "off"
 	if pv.PremiumUnlocked {
-		prem = "ON"
+		prem = "on"
 	}
-	b.WriteString(m.sty.Main.Render(fmt.Sprintf("season %d  ·  %dd left  ·  premium %s", pv.SeasonID, pv.DaysLeft, prem)))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Text.Render(fmt.Sprintf("xp %d  ·  tier %d/%d  ·  next @ %d xp", pv.XP, pv.Tier, progress.MaxTier, pv.NextTierXP)))
-	b.WriteString("\n\n")
+	body.WriteString(m.sty.Main.Render(fmt.Sprintf("season %d  ·  %dd left  ·  premium %s", pv.SeasonID, pv.DaysLeft, prem)))
+	body.WriteString("\n")
+	body.WriteString(m.sty.Text.Render(fmt.Sprintf("xp %d  ·  tier %d/%d  ·  next @ %d xp", pv.XP, pv.Tier, progress.MaxTier, pv.NextTierXP)))
+	body.WriteString("\n\n")
+
+	barW := min(40, max(20, m.width-16))
+	tierBar := m.sty.TierProgress(barW)
+	if pv.NextTierXP > 0 {
+		pct := float64(pv.XP%pv.NextTierXP) / float64(pv.NextTierXP)
+		if pv.Tier >= progress.MaxTier {
+			pct = 1
+		}
+		_ = tierBar.SetPercent(pct)
+	}
+	body.WriteString(tierBar.View())
+	body.WriteString("\n\n")
+
 	matrix := "locked"
 	if pv.MatrixOwned {
 		matrix = "owned"
@@ -484,84 +391,61 @@ func (m Model) viewPass() string {
 	} else if !pv.PremiumUnlocked {
 		rain = "locked · needs premium"
 	}
-	b.WriteString(m.sty.Text.Render(fmt.Sprintf("t10 Matrix (Theme)     %s", matrix)))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Text.Render(fmt.Sprintf("t15 Make it Rain (FX)  %s", rain)))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("(other tier Cosmetics: placeholder — deferred)"))
-	b.WriteString("\n\n")
-	b.WriteString(m.renderHelp(km(bind("esc", "esc", "hub"))))
-	return b.String()
+	body.WriteString(m.sty.Text.Render(fmt.Sprintf("t10 Matrix (Theme)     %s", matrix)))
+	body.WriteString("\n")
+	body.WriteString(m.sty.Text.Render(fmt.Sprintf("t15 Make it Rain (FX)  %s", rain)))
+	body.WriteString("\n")
+	body.WriteString(m.sty.Sub.Render("more tier rewards coming soon"))
+
+	return m.renderScreen(Screen{
+		Title:    "season pass",
+		Subtitle: "free + premium tracks",
+		Meta:     m.progMeta(),
+		Body:     body.String(),
+		Keys:     m.progKeys(),
+	})
 }
 
 func (m Model) viewEquip() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("equip"))
-	b.WriteString("\n")
-	b.WriteString(m.progTabs())
-	b.WriteString("\n\n")
-	slots := []catalog.Slot{catalog.SlotTheme, catalog.SlotCaret, catalog.SlotTitle, catalog.SlotFX}
-	eq := map[string]string{}
-	if m.app != nil {
-		for _, e := range m.app.Store.ListEquipment(m.claimedID) {
-			eq[e.Slot] = e.SKU
-		}
-	}
-	for i, slot := range slots {
-		prefix := "  "
-		if i == m.equipIdx {
-			prefix = "> "
-		}
-		sku := eq[string(slot)]
-		name := "default"
-		if sku != "" {
-			if it, ok := catalog.Lookup(sku); ok {
-				name = it.Name
-			} else {
-				name = sku
-			}
-		}
-		line := fmt.Sprintf("%s%-6s  %s", prefix, slot, name)
-		if i == m.equipIdx {
-			b.WriteString(m.sty.Main.Render(line))
-		} else {
-			b.WriteString(m.sty.Text.Render(line))
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("Matrix / Make it Rain visuals: data + equip only (render stub)"))
-	b.WriteString("\n\n")
-	b.WriteString(m.renderHelp(km(bind("j/k", "j/k", "slot"), bind("enter", "enter", "cycle"), bind("esc", "esc", "hub"))))
-	return b.String()
+	var body strings.Builder
+	body.WriteString(m.progTabBar())
+	body.WriteString("\n\n")
+	body.WriteString(m.equipList.View())
+	body.WriteString("\n")
+	body.WriteString(m.sty.Sub.Render("Matrix / Make it Rain: equip data only (render stub)"))
+	return m.renderScreen(Screen{
+		Title:    "equip",
+		Subtitle: "theme · caret · title · fx",
+		Meta:     m.progMeta(),
+		Body:     body.String(),
+		Keys:     m.progKeys(bind("enter", "enter", "cycle")),
+	})
 }
 
 func (m Model) viewBuyWait() string {
-	var b strings.Builder
 	item, _ := catalog.Lookup(m.buyOrder.SKU)
-	b.WriteString(m.sty.Title.Render(fmt.Sprintf("Buy  %s  ·  %d sats", item.Name, m.buyOrder.Sats)))
-	b.WriteString("\n\n")
+	title := "Buy"
+	if item.Name != "" {
+		title = "Buy " + item.Name
+	}
 	if m.buyOrder.State == persist.OrderGranted {
-		b.WriteString(m.sty.Main.Render("paid · granted to Inventory"))
-		b.WriteString("\n\n")
-		b.WriteString(m.renderHelp(km(bind("esc", "esc", "shop"))))
-		return b.String()
+		return m.renderPayment(PaymentView{
+			Title:  title,
+			Sats:   m.buyOrder.Sats,
+			Done:   true,
+			Status: "paid · granted to inventory",
+		}, km(bind("esc", "esc", "shop")))
 	}
-	if m.buyQR != "" {
-		b.WriteString(m.buyQR)
-		b.WriteString("\n\n")
-	}
-	b.WriteString(m.sty.Sub.Render(ln.ShortBolt11(m.buyOrder.Bolt11)))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render(m.spin.View() + " waiting for payment…"))
-	b.WriteString("\n")
-	if m.buyErr != "" {
-		b.WriteString(m.sty.Incorrect.Render(m.buyErr))
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-	b.WriteString(m.renderHelp(km(bind("esc", "esc", "leave wait"))))
-	return b.String()
+	return m.renderPayment(PaymentView{
+		Title:    title,
+		Subtitle: "scan with a lightning wallet",
+		Sats:     m.buyOrder.Sats,
+		QR:       m.buyQR,
+		Bolt11:   m.buyOrder.Bolt11,
+		Spinner:  m.spin.View(),
+		Status:   "waiting for payment…",
+		Err:      m.buyErr,
+	}, km(bind("esc", "esc", "leave wait")))
 }
 
 // grantSoloXP awards Season XP after a finished solo race.
