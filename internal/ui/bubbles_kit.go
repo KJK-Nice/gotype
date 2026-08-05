@@ -161,9 +161,13 @@ func helpChat() phaseKeyMap {
 
 func helpTyping(multi bool) phaseKeyMap {
 	if multi {
-		return km(bind("esc", "esc", "leave race"))
+		return km(
+			bind("ctrl+u", "ctrl+u", "use"),
+			bind("esc", "esc", "leave race"),
+		)
 	}
 	return km(
+		bind("ctrl+u", "ctrl+u", "use"),
 		bind("tab", "tab", "restart"),
 		bind("esc", "esc", "menu"),
 	)

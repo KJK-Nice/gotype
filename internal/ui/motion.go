@@ -46,6 +46,10 @@ func (m *Model) resetMotion() {
 }
 
 func (m *Model) triggerShake() {
+	if m.calmArmed {
+		m.calmArmed = false
+		return
+	}
 	// Fresh impulse each mistype — under-damped spring wobbles back to 0.
 	m.shake.x = shakeImpulse
 	if m.shake.v < 0 {

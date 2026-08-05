@@ -365,6 +365,8 @@ func (m *Model) applyMultiView(v multi.View) {
 	case multi.PhaseRacing:
 		if !m.raceStarted {
 			m.cfg = v.Config
+			m.raceSeed = v.Seed
+			m.resetConsumableRace()
 			m.sess = game.NewSessionSeeded(v.Config, v.Seed)
 			start := v.RaceStarted
 			if start.IsZero() {
