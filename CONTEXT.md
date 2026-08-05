@@ -12,6 +12,10 @@ _Avoid_: account, user, wallet
 A 12-character Crockford base32 secret (`XXXX-XXXX-XXXX`) that reclaims a Player over SSH; stored only as a password hash.
 _Avoid_: password, API key, seed
 
+**Linking Key**:
+A domain-specific Lightning wallet public key that identifies a Player for wallet login (LNURL-auth). Optional recovery-friendly alternative to Claim Code.
+_Avoid_: pubkey, seed, password
+
 **Inventory**:
 The Player's held Cosmetics, Consumables, and Pass entitlements.
 _Avoid_: bag, stash

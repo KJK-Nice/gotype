@@ -303,7 +303,7 @@ func (m *Model) initBubbles() {
 	m.invList = newMenuList(w, h, "", nil)
 	m.equipList = newMenuList(w, min(8, h), "", nil)
 	m.multiMenuList = newMultiMenuList()
-	m.claimList = newClaimList()
+	m.claimList = newClaimList(false, false)
 }
 
 func (m *Model) applyBubblesTheme() {

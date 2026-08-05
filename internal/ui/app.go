@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kjkusap/monkeytype-clone/internal/lnauth"
 	"github.com/kjkusap/monkeytype-clone/internal/persist"
 	"github.com/kjkusap/monkeytype-clone/internal/player"
 	"github.com/kjkusap/monkeytype-clone/internal/progress"
@@ -16,6 +17,7 @@ type App struct {
 	Players  *player.Service
 	Progress *progress.Service
 	Shop     *shop.Service
+	LNAuth   *lnauth.Service
 }
 
 // OpenApp opens persistence (REDIS_URL preferred) and services.
@@ -40,5 +42,6 @@ func OpenApp(path string) (*App, error) {
 		Players:  players,
 		Progress: prog,
 		Shop:     shop.NewService(store, inv, prog),
+		LNAuth:   lnauth.NewService(players),
 	}, nil
 }

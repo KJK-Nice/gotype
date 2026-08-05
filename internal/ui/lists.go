@@ -47,7 +47,27 @@ func (m *Model) syncListSizes() {
 	m.invList.SetSize(w, h)
 	m.equipList.SetSize(w, min(8, h))
 	m.multiMenuList.SetSize(w, min(6, h))
-	m.claimList.SetSize(w, min(5, h))
+	m.claimList.SetSize(w, min(8, h))
+}
+
+func (m *Model) syncClaimList() {
+	wallet := m.app != nil && m.app.LNAuth != nil && m.app.LNAuth.Enabled()
+	link := wallet && m.isClaimed() && m.sessionActive() && !m.playerHasWallet()
+	w, h := m.listSize()
+	m.claimList = newClaimList(wallet, link)
+	m.claimList.SetSize(w, min(8, h))
+	m.sty.ApplyList(&m.claimList)
+}
+
+func (m *Model) playerHasWallet() bool {
+	if m.app == nil || m.claimedID == "" {
+		return false
+	}
+	p, err := m.app.Store.GetPlayer(m.claimedID)
+	if err != nil {
+		return false
+	}
+	return p.LinkingKey != ""
 }
 
 func (m *Model) syncShopList() {
@@ -142,11 +162,18 @@ func (m *Model) syncProgLists() {
 	m.syncListSizes()
 }
 
-func newClaimList() list.Model {
-	return newMenuList(40, 4, "", []menuItem{
+func newClaimList(walletEnabled, linkEnabled bool) list.Model {
+	items := []menuItem{
 		{title: "Register new Player", desc: "display name + one-time Claim Code", action: "register"},
 		{title: "Reclaim existing Player", desc: "name + Claim Code from registration", action: "reclaim"},
-	})
+	}
+	if walletEnabled {
+		items = append(items, menuItem{title: "Sign in with Lightning", desc: "wallet · scan QR", action: "wallet"})
+	}
+	if linkEnabled {
+		items = append(items, menuItem{title: "Link wallet", desc: "attach Lightning to this Player", action: "link"})
+	}
+	return newMenuList(40, min(6, len(items)+1), "", items)
 }
 
 func newMultiMenuList() list.Model {

@@ -23,6 +23,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/kjkusap/monkeytype-clone/internal/invite"
+	"github.com/kjkusap/monkeytype-clone/internal/lnauth"
 	"github.com/kjkusap/monkeytype-clone/internal/multi"
 	"github.com/kjkusap/monkeytype-clone/internal/ui"
 )
@@ -102,6 +103,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	if sharedApp != nil && sharedApp.LNAuth != nil && sharedApp.LNAuth.Enabled() {
+		lnauth.NewHandler(sharedApp.LNAuth).Mount(mux)
+	}
 	httpSrv := &http.Server{Addr: httpAddr, Handler: mux}
 	log.Info("Starting HTTP landing", "addr", httpAddr)
 	go func() {

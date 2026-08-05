@@ -48,7 +48,8 @@ cmd/gotype-ssh
   └── internal/ui          Bubble Tea model, screens, input
         ├── internal/game  Race engine, Three-Strike, WPM/accuracy
         ├── internal/multi Redis-backed matchmaking hub
-        ├── internal/player   Register / claim / session
+        ├── internal/player   Register / claim / session / wallet login
+        ├── internal/lnauth   LNURL-auth challenges (LUD-04)
         ├── internal/progress XP, Season Pass, rewards
         ├── internal/shop     Buy orders + Lightning invoicing
         ├── internal/persist  Player data store
@@ -78,7 +79,7 @@ cmd/gotype-ssh
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/player` | Register, claim code verify, active session, rename |
+| `internal/player` | Register, claim code verify, wallet linking key, active session, rename |
 | `internal/progress` | XP grants, daily soft cap, Season Pass tier claims |
 | `internal/shop` | Buy flow: Order state machine → invoice → poll → grant |
 | `internal/catalog` | Static SKU list, season track tiers, prices |
@@ -104,6 +105,19 @@ Backend is pluggable (`fileStorage` / `redisStorage`).
 | `gotype:hub:rooms` | Set of active room codes |
 | `gotype:hub:room:{code}` | Room JSON blob |
 | `gotype:ratelimit:{key}` | Register/claim rate-limit windows |
+| `gotype:lnauth:k1:{k1}` | LNURL-auth challenge (5 min TTL) |
+
+### Player identity
+
+Players can persist progression via **Claim Code** (name + secret) or **LNURL-auth** (wallet scan). SSH access stays open; identity is claimed inside the TUI.
+
+| Flow | Mechanism |
+|------|-----------|
+| Claim Code | Register → one-time code; reclaim with name + code |
+| Wallet login | Scan LNURL QR → wallet signs challenge → display name (new) or auto-login (returning) |
+| Link wallet | Attach linking key to an existing Claim Code Player |
+
+HTTP endpoints (when `GOTYPE_PUBLIC_URL` is set): `GET /auth/lnurl` (wallet callback), `GET /auth/lnurl/status` (TUI poll).
 
 ### Entities in the document
 
@@ -161,6 +175,12 @@ Deploy: `railway.toml` → root `Dockerfile` builds `gotype-ssh`. Phoenixd uses 
 | `PHOENIXD_URL` | Phoenixd HTTP base URL |
 | `PHOENIXD_PASSWORD` / `PHOENIXD_API_PASSWORD` | HTTP Basic auth password |
 | `TIP_LIGHTNING_ADDRESS` / `TIP_LNURL` | Fallback tip destination if Phoenixd unset |
+
+### Auth / deploy
+
+| Variable | Description |
+|----------|-------------|
+| `GOTYPE_PUBLIC_URL` | Public HTTPS base for LNURL-auth callbacks (e.g. `https://gotype.fun`) |
 
 ### SSH / deploy
 
