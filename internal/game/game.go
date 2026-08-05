@@ -92,6 +92,9 @@ type Session struct {
 	HP    int
 	MaxHP int
 	DNF   bool
+
+	// RevealThroughWord is the last word index (inclusive) shown as a peek ahead.
+	RevealThroughWord int
 }
 
 const (
@@ -245,6 +248,66 @@ func (s *Session) AddHeart() bool {
 	}
 	s.HP++
 	return true
+}
+
+const RevealPeekWords = 3
+
+// ActivateReveal extends the peek-ahead through the next n words from the cursor.
+func (s *Session) ActivateReveal(n int) {
+	if n < 1 || len(s.Words) == 0 {
+		return
+	}
+	end := s.WordIdx + n
+	if end >= len(s.Words) {
+		end = len(s.Words) - 1
+	}
+	if end > s.RevealThroughWord {
+		s.RevealThroughWord = end
+	}
+}
+
+// WordIndexAtChar maps a flat Chars index to its word index (-1 if unknown).
+func (s *Session) WordIndexAtChar(charIdx int) int {
+	if charIdx < 0 || charIdx >= len(s.Chars) {
+		return -1
+	}
+	w := 0
+	for i, ch := range s.Chars {
+		if i == charIdx {
+			return w
+		}
+		if ch.R == ' ' {
+			w++
+		}
+	}
+	return w
+}
+
+// IsRevealPeek is true when a pending char is in the reveal-ahead window.
+func (s *Session) IsRevealPeek(charIdx int) bool {
+	if s.RevealThroughWord < s.WordIdx {
+		return false
+	}
+	w := s.WordIndexAtChar(charIdx)
+	return w > s.WordIdx && w <= s.RevealThroughWord
+}
+
+// ResetRace restarts the same prompt from scratch (Retry consumable).
+func (s *Session) ResetRace() {
+	words := s.Words
+	cfg := s.Config
+	author := s.QuoteAuthor
+	*s = Session{
+		Config:      cfg,
+		Words:       words,
+		QuoteAuthor: author,
+		Typed:       make([][]rune, len(words)),
+	}
+	if cfg.ThreeStrike {
+		s.HP = ThreeStrikeStartHP
+		s.MaxHP = ThreeStrikeMaxHP
+	}
+	s.rebuildChars()
 }
 
 // HandleRune processes a printable character (not space/backspace).

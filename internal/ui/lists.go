@@ -100,7 +100,7 @@ func (m *Model) syncInvList() {
 		qty := m.app.Store.InventoryQty(m.claimedID, it.SKU)
 		rows = append(rows, menuItem{
 			title:  it.Name,
-			desc:   fmt.Sprintf("x%d · use in race (soon)", qty),
+			desc:   fmt.Sprintf("x%d · use in race (ctrl+u)", qty),
 			action: it.SKU,
 		})
 	}

@@ -144,6 +144,14 @@ type Model struct {
 	buyErr     string
 	lastXPLine string
 	multiXPRace int
+
+	// consumables (in-race)
+	usedConsumable map[string]bool
+	useStripOpen   bool
+	calmArmed      bool
+	useStatus      string
+	useStatusUntil time.Time
+	raceSeed       uint64
 }
 
 type focusField int
@@ -560,6 +568,8 @@ func (m *Model) startTest() tea.Cmd {
 	if m.cfg.Daily {
 		seed = words.DailySeed(time.Now())
 	}
+	m.raceSeed = seed
+	m.resetConsumableRace()
 	m.sess = game.NewSessionSeeded(m.cfg, seed)
 	m.phase = phaseTyping
 	m.now = time.Now()
@@ -614,6 +624,9 @@ func (m Model) roastCmd() tea.Cmd {
 func (m Model) updateTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.sess == nil {
 		return m, nil
+	}
+	if handled, cmd := m.handleConsumableKey(msg); handled {
+		return m, cmd
 	}
 
 	errN := len(m.sess.Errors)
@@ -923,13 +936,17 @@ func (m Model) viewTyping() string {
 		b.WriteString("\n")
 		b.WriteString(m.sty.Sub.Render("— " + m.sess.QuoteAuthor))
 	}
+	if strip := m.viewUseStrip(); strip != "" {
+		b.WriteString("\n")
+		b.WriteString(strip)
+	}
 	if m.roomCode != "" {
 		b.WriteString(m.viewRaceOpponents())
 		b.WriteString("\n")
-		b.WriteString(m.renderHelp(helpTyping(true)))
+		b.WriteString(m.renderHelp(m.typingHelp()))
 	} else {
 		b.WriteString("\n\n")
-		b.WriteString(m.renderHelp(helpTyping(false)))
+		b.WriteString(m.renderHelp(m.typingHelp()))
 	}
 	return b.String()
 }
@@ -960,6 +977,10 @@ func (m Model) renderPrompt() string {
 			base = m.sty.Incorrect
 		case game.CharExtra:
 			base = m.sty.Extra
+		}
+
+		if ch.State == game.CharPending && m.sess.IsRevealPeek(i) {
+			base = m.sty.Sub
 		}
 
 		var styled string
