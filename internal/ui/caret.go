@@ -54,6 +54,8 @@ func (m Model) tickInterval() time.Duration {
 		return tickFast // cinematic digit pulse
 	}
 	switch m.phase {
+	case phaseIntro:
+		return tickFast
 	case phaseTyping:
 		if m.ninjaCaret && m.caretAnimating() {
 			return tickFast

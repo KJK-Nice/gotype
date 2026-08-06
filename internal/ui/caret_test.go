@@ -17,6 +17,10 @@ func TestNinjaOffByDefault(t *testing.T) {
 
 func TestTickIntervalAdaptive(t *testing.T) {
 	m := New()
+	if d := m.tickInterval(); d != tickFast {
+		t.Fatalf("intro tick=%v want %v", d, tickFast)
+	}
+	m.finishIntro()
 	if d := m.tickInterval(); d != tickIdle {
 		t.Fatalf("menu tick=%v want %v", d, tickIdle)
 	}
