@@ -31,7 +31,8 @@ import (
 type phase int
 
 const (
-	phaseConfig phase = iota
+	phaseIntro phase = iota
+	phaseConfig
 	phaseTyping
 	phaseResult
 	phaseMultiMenu
@@ -79,6 +80,11 @@ type Model struct {
 	shake    spring1D                   // error screen shake (cells)
 	raceBars map[string]progress.Model // playerID → animated race bar
 
+	// Login intro (ASCII rain → assemble "gotype" → home).
+	introRain *introRain
+	introAt   time.Time
+	introLast time.Time
+	introSeed int64
 
 	hub         *multi.Hub
 	playerID    string
@@ -188,7 +194,7 @@ func NewWithOptions(opts Options) Model {
 		ip = "local"
 	}
 	m := Model{
-		phase:        phaseConfig,
+		phase:        phaseIntro,
 		cfg:          game.DefaultConfig,
 		focus:        focusMode,
 		width:        80,
@@ -205,6 +211,11 @@ func NewWithOptions(opts Options) Model {
 		app:          opts.App,
 		sessionID:    sessID,
 		remoteIP:     ip,
+	}
+	if opts.AutoSpectate {
+		m.phase = phaseConfig // demo path skips brand intro
+	} else {
+		m.beginIntro()
 	}
 	m.initBubbles()
 	m.initClaimInputs()
@@ -290,6 +301,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chatVP.SetWidth(min(48, max(20, m.width-8)))
 		m.podiumTable.SetWidth(min(48, max(24, m.width-8)))
 		m.syncListSizes()
+		m.rebuildIntroRain()
 		return m, tea.Batch(cmds...)
 
 	case tickMsg:
@@ -313,6 +325,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCaret()
 			}
 		}
+		m.stepIntro()
 		m.stepShake()
 		m.stepCountdownCinematic()
 		m.syncRaceBars()
@@ -393,6 +406,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if m.phase == phaseIntro {
+		return m.updateIntro(msg)
 	}
 	if m.claimMode != claimIdle {
 		return m.updateClaim(msg)
@@ -729,6 +745,21 @@ func (m Model) updateResult(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
+	w, h := m.width, m.height
+	if w < 1 {
+		w = 80
+	}
+	if h < 1 {
+		h = 24
+	}
+
+	// Full-bleed login rain — no box chrome.
+	if m.phase == phaseIntro && m.claimMode == claimIdle && m.prog == progNone {
+		v := tea.NewView(m.viewIntro())
+		v.AltScreen = true
+		return v
+	}
+
 	var body string
 	switch {
 	case m.claimMode != claimIdle:
@@ -760,13 +791,6 @@ func (m Model) View() tea.View {
 	}
 
 	content := m.sty.Box.Render(body)
-	w, h := m.width, m.height
-	if w < 1 {
-		w = 80
-	}
-	if h < 1 {
-		h = 24
-	}
 	placed := lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, content)
 	dx := int(math.Round(m.shake.x))
 	if dx != 0 {
