@@ -126,27 +126,27 @@ func (m Model) viewConfig() string {
 	b.WriteString("\n\n")
 
 	b.WriteString(m.configKV("theme", "u", ThemeName(m.themeIdx)))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 	b.WriteString(m.configKV("voice", "v", m.voice.String()))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 	if m.ninjaCaret {
 		b.WriteString(m.configKV("ninja", "n", "on"))
 	} else {
 		b.WriteString(m.configKV("ninja", "n", "off"))
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 	if m.cfg.Daily {
 		b.WriteString(m.configKV("daily", "y", words.DailyLabel(m.now)))
 	} else {
 		b.WriteString(m.configKV("daily", "y", "off"))
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 	if m.ghostOn {
 		b.WriteString(m.configKV("ghost", "g", "on"))
 	} else {
 		b.WriteString(m.configKV("ghost", "g", "off"))
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 	if m.isClaimed() {
 		b.WriteString(m.configKV("player", "c", m.playerName))
 	} else {
@@ -154,7 +154,7 @@ func (m Model) viewConfig() string {
 	}
 
 	if m.multiEnabled() {
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 		b.WriteString(m.configKV("multi", "m", "menu"))
 	}
 
@@ -163,9 +163,9 @@ func (m Model) viewConfig() string {
 	b.WriteString("\n\n")
 
 	b.WriteString(m.configKV("progress", "i/s/p/e", "inv · shop · pass · equip"))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 	b.WriteString(m.configKV("start", "enter/space", configDetail(m.cfg, nil)))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 	b.WriteString(m.configKV("quit", "q", "exit"))
 	b.WriteString("\n")
 
