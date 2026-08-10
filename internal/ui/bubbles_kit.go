@@ -38,31 +38,6 @@ func bind(keys, helpKey, desc string) key.Binding {
 	return key.NewBinding(key.WithKeys(keys), key.WithHelp(helpKey, desc))
 }
 
-func (m Model) helpConfig() phaseKeyMap {
-	binds := []key.Binding{
-		bind("up/down", "↑↓", "change"),
-		bind("tab", "tab", "focus"),
-		bind("enter", "enter", "start"),
-		bind("u", "u", "theme"),
-		bind("c", "c", "claim"),
-		bind("i/s/p/e", "i/s/p/e", "progress"),
-		bind("v", "v", "voice"),
-		bind("n", "n", "ninja"),
-		bind("y", "y", "daily"),
-		bind("g", "g", "ghost"),
-		bind("t/w/o", "t/w/o", "mode"),
-		bind("q", "q", "quit"),
-	}
-	if m.multiEnabled() {
-		out := make([]key.Binding, 0, len(binds)+1)
-		out = append(out, binds[:3]...)
-		out = append(out, bind("m", "m", "multi"))
-		out = append(out, binds[3:]...)
-		return km(out...)
-	}
-	return km(binds...)
-}
-
 func helpMultiMenu() phaseKeyMap {
 	return km(
 		bind("enter", "enter", "select"),

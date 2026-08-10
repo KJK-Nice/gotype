@@ -448,21 +448,15 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
-	case "tab", "right", "l":
-		if m.focus == focusMode {
-			m.focus = focusValue
-		} else {
-			m.focus = focusMode
-		}
-	case "left", "h":
-		if m.focus == focusValue {
-			m.focus = focusMode
-		} else {
-			m.focus = focusValue
-		}
+	case "tab":
+		m.toggleConfigFocus()
 	case "up", "k":
-		m.nudgeConfig(-1)
+		m.toggleConfigFocus()
 	case "down", "j":
+		m.toggleConfigFocus()
+	case "left", "h":
+		m.nudgeConfig(-1)
+	case "right", "l":
 		m.nudgeConfig(1)
 	case "t":
 		m.cfg.Mode = game.ModeTime
@@ -511,6 +505,14 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.ghostOn = !m.ghostOn
 	}
 	return m, nil
+}
+
+func (m *Model) toggleConfigFocus() {
+	if m.focus == focusMode {
+		m.focus = focusValue
+	} else {
+		m.focus = focusMode
+	}
 }
 
 func (m *Model) nudgeConfig(dir int) {
@@ -814,124 +816,6 @@ func configDetail(cfg game.Config, sess *game.Session) string {
 	default:
 		return game.FormatSeconds(cfg.Duration) + "s"
 	}
-}
-
-func (m Model) viewConfig() string {
-	var b strings.Builder
-	b.WriteString(m.sty.Title.Render("gotype"))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("typing races in your terminal"))
-	b.WriteString("\n\n")
-
-	modeTime := m.sty.Option.Render("time")
-	modeWords := m.sty.Option.Render("words")
-	modeQuote := m.sty.Option.Render("quote")
-	switch m.cfg.Mode {
-	case game.ModeTime:
-		modeTime = m.sty.Selected.Render("time")
-	case game.ModeWords:
-		modeWords = m.sty.Selected.Render("words")
-	case game.ModeQuotes:
-		modeQuote = m.sty.Selected.Render("quote")
-	}
-	if m.focus == focusMode {
-		b.WriteString(m.sty.Main.Render("mode  "))
-	} else {
-		b.WriteString(m.sty.Sub.Render("mode  "))
-	}
-	b.WriteString(modeTime)
-	b.WriteString(" ")
-	b.WriteString(modeWords)
-	b.WriteString(" ")
-	b.WriteString(modeQuote)
-	b.WriteString("\n\n")
-
-	if m.focus == focusValue {
-		b.WriteString(m.sty.Main.Render("value "))
-	} else {
-		b.WriteString(m.sty.Sub.Render("value "))
-	}
-
-	switch m.cfg.Mode {
-	case game.ModeTime:
-		for i, d := range game.TimeOptions {
-			label := fmt.Sprintf("%d", int(d.Seconds()))
-			if d == m.cfg.Duration {
-				b.WriteString(m.sty.Selected.Render(label))
-			} else {
-				b.WriteString(m.sty.Option.Render(label))
-			}
-			if i < len(game.TimeOptions)-1 {
-				b.WriteString(" ")
-			}
-		}
-	case game.ModeQuotes:
-		for i, qlen := range game.QuoteLenOptions {
-			label := qlen.String()
-			if qlen == m.cfg.QuoteLen {
-				b.WriteString(m.sty.Selected.Render(label))
-			} else {
-				b.WriteString(m.sty.Option.Render(label))
-			}
-			if i < len(game.QuoteLenOptions)-1 {
-				b.WriteString(" ")
-			}
-		}
-	default:
-		for i, n := range game.WordOptions {
-			label := fmt.Sprintf("%d", n)
-			if n == m.cfg.WordCount {
-				b.WriteString(m.sty.Selected.Render(label))
-			} else {
-				b.WriteString(m.sty.Option.Render(label))
-			}
-			if i < len(game.WordOptions)-1 {
-				b.WriteString(" ")
-			}
-		}
-	}
-
-	b.WriteString("\n\n")
-	b.WriteString(m.sty.Sub.Render("theme "))
-	b.WriteString(m.sty.Main.Render(ThemeName(m.themeIdx)))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("voice "))
-	b.WriteString(m.sty.Main.Render(m.voice.String()))
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("ninja "))
-	if m.ninjaCaret {
-		b.WriteString(m.sty.Main.Render("on"))
-	} else {
-		b.WriteString(m.sty.Main.Render("off"))
-	}
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("daily "))
-	if m.cfg.Daily {
-		b.WriteString(m.sty.Main.Render(words.DailyLabel(m.now)))
-	} else {
-		b.WriteString(m.sty.Main.Render("off"))
-	}
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("ghost "))
-	if m.ghostOn {
-		b.WriteString(m.sty.Main.Render("on"))
-	} else {
-		b.WriteString(m.sty.Main.Render("off"))
-	}
-	b.WriteString("\n")
-	b.WriteString(m.sty.Sub.Render("player "))
-	if m.isClaimed() {
-		b.WriteString(m.sty.Main.Render(m.playerName))
-	} else {
-		b.WriteString(m.sty.Sub.Render("guest · c claim"))
-	}
-	if m.statusErr != "" {
-		b.WriteString("\n")
-		b.WriteString(m.sty.Incorrect.Render(m.statusErr))
-	}
-	b.WriteString("\n\n")
-	b.WriteString(m.renderHelp(m.helpConfig()))
-	return b.String()
 }
 
 func (m Model) viewTyping() string {
