@@ -161,6 +161,9 @@ type Model struct {
 	useStatus      string
 	useStatusUntil time.Time
 	raceSeed       uint64
+
+	// Ignore result / progress hotkeys until this time (post-finish buffer).
+	resultKeysUntil time.Time
 }
 
 type focusField int
@@ -413,6 +416,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.claimMode != claimIdle {
 		return m.updateClaim(msg)
 	}
+	// Post-finish buffer: eat keys (incl. i/s/p/e) so last keystrokes don't navigate away.
+	if m.resultKeysLocked() {
+		return m, nil
+	}
 	if m.prog != progNone {
 		if nm, cmd, ok := m.tryProgHotkey(msg); ok {
 			return nm, cmd
@@ -625,9 +632,31 @@ func (m *Model) finishSolo() tea.Cmd {
 	m.roastText = ""
 	m.roastLoading = true
 	m.clearTip()
+	m.resultKeysUntil = m.now.Add(resultKeyLock)
 	m.grantSoloXP()
 	stop := m.stopRaceStopwatch()
 	return tea.Batch(stop, m.roastCmd(), m.spin.Tick)
+}
+
+const resultKeyLock = 3 * time.Second
+
+func (m Model) resultKeysLocked() bool {
+	return m.phase == phaseResult && !m.resultKeysUntil.IsZero() && m.now.Before(m.resultKeysUntil)
+}
+
+func (m Model) resultLockLeft() time.Duration {
+	if !m.resultKeysLocked() {
+		return 0
+	}
+	d := m.resultKeysUntil.Sub(m.now)
+	if d <= 0 {
+		return 0
+	}
+	sec := int((d + time.Second - 1) / time.Second) // ceil
+	if sec < 1 {
+		sec = 1
+	}
+	return time.Duration(sec) * time.Second
 }
 
 func (m Model) roastCmd() tea.Cmd {
@@ -1088,6 +1117,10 @@ func (m Model) viewResult() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.sty.Sub.Render(invite.RaceMe(snap.WPM)))
 	b.WriteString("\n\n")
-	b.WriteString(m.renderHelp(helpResult(ln.Configured())))
+	if left := m.resultLockLeft(); left > 0 {
+		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("keys in %ds…", int(left.Seconds()))))
+	} else {
+		b.WriteString(m.renderHelp(helpResult(ln.Configured())))
+	}
 	return b.String()
 }
