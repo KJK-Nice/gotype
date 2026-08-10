@@ -54,7 +54,7 @@ func (m *Model) stepIntro() {
 
 	stage, _ := introProgress(m.now.Sub(m.introAt))
 	if stage == introStageDone {
-		m.finishIntro() // instant snap to home on next View
+		m.finishIntro()
 	}
 }
 
@@ -90,17 +90,15 @@ func (m Model) viewIntro() string {
 		h = 24
 	}
 
-	stage, prog := introProgress(m.introElapsed())
-	lockN := titleLockCount(stage, prog)
-
-	// Anchor title where home will place it (same lipgloss.Place as phaseConfig).
+	// Full home plate under rain — wipe reveals it top→bottom.
 	home := lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, m.sty.Box.Render(m.viewConfig()))
-	titleRow, titleCol := findTitleAnchor(home, w, h)
-
 	if m.introRain == nil {
 		return home
 	}
-	return m.introRain.renderScene(lockN, titleRow, titleCol, m.sty.Title)
+
+	stage, prog := introProgress(m.introElapsed())
+	cy := clearY(stage, prog, h)
+	return stampRainOver(home, m.introRain, cy, w, h)
 }
 
 func stripANSI(s string) string {
