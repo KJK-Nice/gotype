@@ -8,16 +8,21 @@ import (
 	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
 
+const (
+	configLabelW = 10
+	configHintW  = 10
+)
+
 // configKV renders "label  key  value" — label/key in Sub, value in Main (claim-style).
 func (m Model) configKV(label, keyHint, value string) string {
 	var b strings.Builder
 	if label != "" {
-		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("%-7s", label)))
+		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("%-*s", configLabelW, label)))
 	}
 	if keyHint != "" {
-		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("%-5s", keyHint)))
+		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("%-*s", configHintW, keyHint)))
 	} else if label != "" {
-		b.WriteString(strings.Repeat(" ", 5))
+		b.WriteString(strings.Repeat(" ", configHintW))
 	}
 	b.WriteString(m.sty.Main.Render(value))
 	return b.String()
@@ -29,11 +34,11 @@ func (m Model) configFieldLabel(label, keyHint string, focused bool) string {
 		style = m.sty.Main
 	}
 	var b strings.Builder
-	b.WriteString(style.Render(fmt.Sprintf("%-7s", label)))
+	b.WriteString(style.Render(fmt.Sprintf("%-*s", configLabelW, label)))
 	if keyHint != "" {
-		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("%-5s", keyHint)))
+		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("%-*s", configHintW, keyHint)))
 	} else {
-		b.WriteString(strings.Repeat(" ", 5))
+		b.WriteString(strings.Repeat(" ", configHintW))
 	}
 	return b.String()
 }
@@ -50,7 +55,7 @@ func (m Model) renderModeOptions() string {
 	case game.ModeQuotes:
 		modeQuote = m.sty.Selected.Render("quote")
 	}
-	return modeTime + " " + modeWords + " " + modeQuote
+	return modeTime + "  " + modeWords + "  " + modeQuote
 }
 
 func (m Model) renderValueOptions() string {
@@ -65,7 +70,7 @@ func (m Model) renderValueOptions() string {
 				b.WriteString(m.sty.Option.Render(label))
 			}
 			if i < len(game.TimeOptions)-1 {
-				b.WriteByte(' ')
+				b.WriteString("  ")
 			}
 		}
 	case game.ModeQuotes:
@@ -77,7 +82,7 @@ func (m Model) renderValueOptions() string {
 				b.WriteString(m.sty.Option.Render(label))
 			}
 			if i < len(game.QuoteLenOptions)-1 {
-				b.WriteByte(' ')
+				b.WriteString("  ")
 			}
 		}
 	default:
@@ -89,7 +94,7 @@ func (m Model) renderValueOptions() string {
 				b.WriteString(m.sty.Option.Render(label))
 			}
 			if i < len(game.WordOptions)-1 {
-				b.WriteByte(' ')
+				b.WriteString("  ")
 			}
 		}
 	}
@@ -98,6 +103,7 @@ func (m Model) renderValueOptions() string {
 
 func (m Model) viewConfig() string {
 	var b strings.Builder
+	b.WriteString("\n")
 	b.WriteString(m.sty.Title.Render("gotype"))
 	b.WriteString("\n")
 	b.WriteString(m.sty.Sub.Render("typing races in your terminal"))
@@ -109,7 +115,7 @@ func (m Model) viewConfig() string {
 	}
 	b.WriteString(m.configFieldLabel("mode", modeHint, m.focus == focusMode))
 	b.WriteString(m.renderModeOptions())
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	valueHint := ""
 	if m.focus == focusValue {
@@ -120,42 +126,46 @@ func (m Model) viewConfig() string {
 	b.WriteString("\n\n")
 
 	b.WriteString(m.configKV("theme", "u", ThemeName(m.themeIdx)))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	b.WriteString(m.configKV("voice", "v", m.voice.String()))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	if m.ninjaCaret {
 		b.WriteString(m.configKV("ninja", "n", "on"))
 	} else {
 		b.WriteString(m.configKV("ninja", "n", "off"))
 	}
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	if m.cfg.Daily {
 		b.WriteString(m.configKV("daily", "y", words.DailyLabel(m.now)))
 	} else {
 		b.WriteString(m.configKV("daily", "y", "off"))
 	}
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	if m.ghostOn {
 		b.WriteString(m.configKV("ghost", "g", "on"))
 	} else {
 		b.WriteString(m.configKV("ghost", "g", "off"))
 	}
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	if m.isClaimed() {
 		b.WriteString(m.configKV("player", "c", m.playerName))
 	} else {
 		b.WriteString(m.configKV("player", "c", "guest"))
 	}
-	b.WriteString("\n")
 
 	if m.multiEnabled() {
+		b.WriteString("\n\n")
 		b.WriteString(m.configKV("multi", "m", "menu"))
-		b.WriteString("\n")
 	}
+
+	b.WriteString("\n\n")
+	b.WriteString(m.sty.Divider.Render(strings.Repeat("─", 28)))
+	b.WriteString("\n\n")
+
 	b.WriteString(m.configKV("progress", "i/s/p/e", "inv · shop · pass · equip"))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	b.WriteString(m.configKV("start", "enter/space", configDetail(m.cfg, nil)))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	b.WriteString(m.configKV("quit", "q", "exit"))
 	b.WriteString("\n")
 
