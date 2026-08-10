@@ -54,7 +54,7 @@ gotype
 
 ## Controls
 
-1. Pick **time**, **words**, or **quote** (`t` / `w` / `o`, or `←/→` when mode is focused)
+1. Pick **time**, **words**, **quote**, or **ai** (`t` / `w` / `o` / `a` when LLM configured, or `←/→` when mode is focused)
 2. Pick duration / word count / quote length (`↑/↓` to focus value row, `←/→` to change)
 3. Enter or space to start — type the prompt
 4. Results: WPM chart, accuracy, roast/stoic line
@@ -64,7 +64,7 @@ gotype
 | ↑↓ / j k | Switch focus between mode and value |
 | ←→ / h l | Change mode or value (by focus) |
 | tab | Toggle mode ↔ value focus |
-| t / w / o | Time / words / quote mode |
+| t / w / o / a | Time / words / quote / ai mode (`a` needs LLM key) |
 | u | Cycle theme |
 | v | Toggle roast ↔ stoic voice |
 | n | Toggle ninja caret |
@@ -84,6 +84,7 @@ gotype
 | **time** | 15 / 30 / 60 / 120 seconds |
 | **words** | 10 / 25 / 50 / 100 words |
 | **quote** | Short / medium / long passages — stoics, Naval, more |
+| **ai** | LLM stoic/Naval-ish passage (needs API key; solo only) |
 
 WPM = correct chars ÷ 5 ÷ minutes. Accuracy = correct ÷ typed.
 
