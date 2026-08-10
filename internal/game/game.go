@@ -15,6 +15,7 @@ const (
 	ModeTime Mode = iota
 	ModeWords
 	ModeQuotes
+	ModeAI // LLM-generated stoic/Naval-ish passage (solo)
 )
 
 func (m Mode) String() string {
@@ -23,14 +24,16 @@ func (m Mode) String() string {
 		return "words"
 	case ModeQuotes:
 		return "quote"
+	case ModeAI:
+		return "ai"
 	default:
 		return "time"
 	}
 }
 
-// EndsOnPrompt is true when the test ends after finishing the prompt (words/quote).
+// EndsOnPrompt is true when the test ends after finishing the prompt (words/quote/ai).
 func (m Mode) EndsOnPrompt() bool {
-	return m == ModeWords || m == ModeQuotes
+	return m == ModeWords || m == ModeQuotes || m == ModeAI
 }
 
 // Config holds test settings chosen on the menu.
@@ -116,6 +119,11 @@ func NewSessionSeeded(cfg Config, seed uint64) *Session {
 		w = q.Words()
 		author = q.Author
 		cfg.WordCount = len(w)
+	case ModeAI:
+		// Prompt filled by NewSessionFromPassage after LLM returns.
+		w = []string{"…"}
+		author = "ai"
+		cfg.WordCount = 1
 	case ModeTime:
 		n := 200
 		if seed != 0 {
@@ -131,6 +139,27 @@ func NewSessionSeeded(cfg Config, seed uint64) *Session {
 			w = words.Generate(words.English, n)
 		}
 	}
+	s := &Session{
+		Config:      cfg,
+		Words:       w,
+		Typed:       make([][]rune, len(w)),
+		QuoteAuthor: author,
+	}
+	if cfg.ThreeStrike {
+		s.HP = ThreeStrikeStartHP
+		s.MaxHP = ThreeStrikeMaxHP
+	}
+	s.rebuildChars()
+	return s
+}
+
+// NewSessionFromPassage builds a words/quote/ai session from a finished prompt.
+func NewSessionFromPassage(cfg Config, text, author string) *Session {
+	w := words.Quote{Text: text}.Words()
+	if len(w) == 0 {
+		w = []string{"…"}
+	}
+	cfg.WordCount = len(w)
 	s := &Session{
 		Config:      cfg,
 		Words:       w,

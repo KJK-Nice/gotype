@@ -24,6 +24,7 @@ import (
 	"github.com/kjkusap/monkeytype-clone/internal/ln"
 	"github.com/kjkusap/monkeytype-clone/internal/multi"
 	"github.com/kjkusap/monkeytype-clone/internal/persist"
+	"github.com/kjkusap/monkeytype-clone/internal/quoteai"
 	"github.com/kjkusap/monkeytype-clone/internal/roast"
 	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
@@ -46,6 +47,12 @@ type tickMsg time.Time
 
 type roastMsg struct {
 	text string
+}
+
+type aiQuoteMsg struct {
+	text   string
+	author string
+	err    string
 }
 
 // Options configures optional multiplayer / SSH identity.
@@ -164,6 +171,8 @@ type Model struct {
 
 	// Ignore result / progress hotkeys until this time (post-finish buffer).
 	resultKeysUntil time.Time
+
+	aiGenerating bool // ModeAI: waiting on LLM before typing
 }
 
 type focusField int
@@ -340,6 +349,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.roastText = msg.text
 		return m, tea.Batch(cmds...)
 
+	case aiQuoteMsg:
+		m.aiGenerating = false
+		if msg.err != "" {
+			m.phase = phaseConfig
+			m.sess = nil
+			m.statusErr = msg.err
+			return m, tea.Batch(cmds...)
+		}
+		m.statusErr = ""
+		m.sess = game.NewSessionFromPassage(m.cfg, msg.text, msg.author)
+		m.resetCaret()
+		m.shake = spring1D{}
+		cmds = append(cmds, m.startRaceStopwatch())
+		return m, tea.Batch(cmds...)
+
 	case tipMsg:
 		m.tipLoadingDone(msg)
 		return m, tea.Batch(cmds...)
@@ -474,11 +498,19 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "o":
 		m.cfg.Mode = game.ModeQuotes
 		m.focus = focusValue
+	case "a":
+		if quoteai.Configured() {
+			m.cfg.Mode = game.ModeAI
+			m.focus = focusValue
+		}
 	case "enter", "space":
 		return m, m.startTest()
 	case "m":
 		if m.multiEnabled() {
 			m.statusErr = ""
+			if m.cfg.Mode == game.ModeAI {
+				m.cfg.Mode = game.ModeQuotes // AI solo-only
+			}
 			m.phase = phaseMultiMenu
 		}
 	case "u":
@@ -524,7 +556,7 @@ func (m *Model) toggleConfigFocus() {
 
 func (m *Model) nudgeConfig(dir int) {
 	if m.focus == focusMode {
-		modes := []game.Mode{game.ModeTime, game.ModeWords, game.ModeQuotes}
+		modes := m.availableModes()
 		idx := 0
 		for i, mode := range modes {
 			if mode == m.cfg.Mode {
@@ -542,7 +574,7 @@ func (m *Model) nudgeConfig(dir int) {
 		idx := indexDuration(m.cfg.Duration)
 		idx = (idx + dir + len(game.TimeOptions)) % len(game.TimeOptions)
 		m.cfg.Duration = game.TimeOptions[idx]
-	case game.ModeQuotes:
+	case game.ModeQuotes, game.ModeAI:
 		idx := indexQuoteLen(m.cfg.QuoteLen)
 		idx = (idx + dir + len(game.QuoteLenOptions)) % len(game.QuoteLenOptions)
 		m.cfg.QuoteLen = game.QuoteLenOptions[idx]
@@ -550,6 +582,20 @@ func (m *Model) nudgeConfig(dir int) {
 		idx := indexInt(m.cfg.WordCount, game.WordOptions)
 		idx = (idx + dir + len(game.WordOptions)) % len(game.WordOptions)
 		m.cfg.WordCount = game.WordOptions[idx]
+	}
+}
+
+func (m Model) availableModes() []game.Mode {
+	modes := []game.Mode{game.ModeTime, game.ModeWords, game.ModeQuotes}
+	if quoteai.Configured() {
+		modes = append(modes, game.ModeAI)
+	}
+	return modes
+}
+
+func (m *Model) ensureModeAvailable() {
+	if m.cfg.Mode == game.ModeAI && !quoteai.Configured() {
+		m.cfg.Mode = game.ModeQuotes
 	}
 }
 
@@ -604,22 +650,44 @@ func (m *Model) tipLoadingDone(msg tipMsg) {
 
 // startTest begins a solo session.
 func (m *Model) startTest() tea.Cmd {
+	m.ensureModeAvailable()
 	seed := uint64(0)
 	if m.cfg.Daily {
 		seed = words.DailySeed(time.Now())
 	}
 	m.raceSeed = seed
 	m.resetConsumableRace()
-	m.sess = game.NewSessionSeeded(m.cfg, seed)
 	m.phase = phaseTyping
 	m.now = time.Now()
-	m.resetCaret()
 	m.shake = spring1D{}
 	m.ghostRec = nil
 	m.roastText = ""
 	m.roastLoading = false
 	m.clearTip()
+	m.statusErr = ""
+
+	if m.cfg.Mode == game.ModeAI {
+		m.aiGenerating = true
+		m.sess = nil
+		m.resetCaret()
+		return tea.Batch(m.spin.Tick, m.aiQuoteCmd())
+	}
+
+	m.aiGenerating = false
+	m.sess = game.NewSessionSeeded(m.cfg, seed)
+	m.resetCaret()
 	return m.startRaceStopwatch()
+}
+
+func (m Model) aiQuoteCmd() tea.Cmd {
+	qlen := m.cfg.QuoteLen
+	return func() tea.Msg {
+		p, err := quoteai.Generate(context.Background(), qlen)
+		if err != nil {
+			return aiQuoteMsg{err: "ai quote failed: " + err.Error()}
+		}
+		return aiQuoteMsg{text: p.Text, author: p.Author}
+	}
 }
 
 // finishSolo moves to results and kicks off an async roast.
@@ -684,6 +752,20 @@ func (m Model) roastCmd() tea.Cmd {
 }
 
 func (m Model) updateTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.aiGenerating {
+		switch msg.String() {
+		case "esc":
+			m.aiGenerating = false
+			m.phase = phaseConfig
+			m.sess = nil
+			m.statusErr = ""
+			return m, nil
+		case "ctrl+c":
+			return m, tea.Quit
+		default:
+			return m, nil
+		}
+	}
 	if m.sess == nil {
 		return m, nil
 	}
@@ -840,7 +922,7 @@ func configDetail(cfg game.Config, sess *game.Session) string {
 			n = sess.Config.WordCount
 		}
 		return fmt.Sprintf("%d words", n)
-	case game.ModeQuotes:
+	case game.ModeQuotes, game.ModeAI:
 		return cfg.QuoteLen.String()
 	default:
 		return game.FormatSeconds(cfg.Duration) + "s"
@@ -848,6 +930,15 @@ func configDetail(cfg game.Config, sess *game.Session) string {
 }
 
 func (m Model) viewTyping() string {
+	if m.aiGenerating {
+		var b strings.Builder
+		b.WriteString(m.sty.Title.Render("ai quote"))
+		b.WriteString("\n\n")
+		b.WriteString(m.sty.Sub.Render(m.spin.View() + " generating…"))
+		b.WriteString("\n\n")
+		b.WriteString(m.sty.Sub.Render("esc cancel"))
+		return b.String()
+	}
 	if m.sess == nil {
 		return ""
 	}
@@ -1052,7 +1143,7 @@ func (m Model) viewResult() string {
 
 	passW := chartW
 	maxPassLines := 6
-	if m.cfg.Mode == game.ModeQuotes {
+	if m.cfg.Mode == game.ModeQuotes || m.cfg.Mode == game.ModeAI {
 		maxPassLines = 10
 	}
 	passage := m.renderResultPassage(passW, maxPassLines)

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kjkusap/monkeytype-clone/internal/game"
+	"github.com/kjkusap/monkeytype-clone/internal/quoteai"
 	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
 
@@ -55,7 +56,15 @@ func (m Model) renderModeOptions() string {
 	case game.ModeQuotes:
 		modeQuote = m.sty.Selected.Render("quote")
 	}
-	return modeTime + "  " + modeWords + "  " + modeQuote
+	parts := []string{modeTime, modeWords, modeQuote}
+	if quoteai.Configured() {
+		modeAI := m.sty.Option.Render("ai")
+		if m.cfg.Mode == game.ModeAI {
+			modeAI = m.sty.Selected.Render("ai")
+		}
+		parts = append(parts, modeAI)
+	}
+	return strings.Join(parts, "  ")
 }
 
 func (m Model) renderValueOptions() string {
@@ -73,7 +82,7 @@ func (m Model) renderValueOptions() string {
 				b.WriteString("  ")
 			}
 		}
-	case game.ModeQuotes:
+	case game.ModeQuotes, game.ModeAI:
 		for i, qlen := range game.QuoteLenOptions {
 			label := qlen.String()
 			if qlen == m.cfg.QuoteLen {
@@ -110,6 +119,9 @@ func (m Model) viewConfig() string {
 	b.WriteString("\n\n")
 
 	modeHint := "t/w/o"
+	if quoteai.Configured() {
+		modeHint = "t/w/o/a"
+	}
 	if m.focus == focusMode {
 		modeHint = "←/→"
 	}

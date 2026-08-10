@@ -41,7 +41,11 @@ func (m Model) updateMultiMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) execMultiAction(action string) (Model, tea.Cmd) {
 	switch action {
 	case "create":
-		v, err := m.hub.Create(m.playerID, m.playerName, m.cfg)
+		cfg := m.cfg
+		if cfg.Mode == game.ModeAI {
+			cfg.Mode = game.ModeQuotes // AI solo-only
+		}
+		v, err := m.hub.Create(m.playerID, m.playerName, cfg)
 		if err != nil {
 			m.statusErr = err.Error()
 			return m, nil

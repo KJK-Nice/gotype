@@ -139,6 +139,32 @@ func model() string {
 	return defaultOpenAIModel
 }
 
+// ModelName returns the active LLM model id (for display / QuoteAuthor).
+func ModelName() string {
+	if !Configured() {
+		return ""
+	}
+	return model()
+}
+
+// Complete runs a one-shot chat completion with the roast LLM backend.
+func Complete(ctx context.Context, system, user string, maxTokens int) (string, error) {
+	if !Configured() {
+		return "", fmt.Errorf("llm not configured")
+	}
+	if maxTokens < 1 {
+		maxTokens = 80
+	}
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	switch activeProvider() {
+	case providerGoogle:
+		return completeGemini(ctx, system, user, maxTokens)
+	default:
+		return completeOpenAI(ctx, system, user, maxTokens)
+	}
+}
+
 // Generate returns a short roast. Uses LLM when configured; else local templates.
 func Generate(ctx context.Context, in Input) (string, error) {
 	if !Configured() {
@@ -280,26 +306,18 @@ func userPrompt(in Input) string {
 }
 
 func callLLM(ctx context.Context, in Input) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-
-	switch activeProvider() {
-	case providerGoogle:
-		return callGemini(ctx, in)
-	default:
-		return callOpenAI(ctx, in)
-	}
+	return Complete(ctx, systemPrompt(in.Voice), userPrompt(in), 80)
 }
 
-func callOpenAI(ctx context.Context, in Input) (string, error) {
+func completeOpenAI(ctx context.Context, system, user string, maxTokens int) (string, error) {
 	body := map[string]any{
 		"model": model(),
 		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt(in.Voice)},
-			{"role": "user", "content": userPrompt(in)},
+			{"role": "system", "content": system},
+			{"role": "user", "content": user},
 		},
 		"temperature": 0.95,
-		"max_tokens":  80,
+		"max_tokens":  maxTokens,
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -329,25 +347,25 @@ func callOpenAI(ctx context.Context, in Input) (string, error) {
 		return "", err
 	}
 	if len(parsed.Choices) == 0 {
-		return "", fmt.Errorf("empty roast response")
+		return "", fmt.Errorf("empty llm response")
 	}
 	return cleanRoast(parsed.Choices[0].Message.Content)
 }
 
-func callGemini(ctx context.Context, in Input) (string, error) {
+func completeGemini(ctx context.Context, system, user string, maxTokens int) (string, error) {
 	body := map[string]any{
 		"systemInstruction": map[string]any{
-			"parts": []map[string]string{{"text": systemPrompt(in.Voice)}},
+			"parts": []map[string]string{{"text": system}},
 		},
 		"contents": []map[string]any{
 			{
 				"role":  "user",
-				"parts": []map[string]string{{"text": userPrompt(in)}},
+				"parts": []map[string]string{{"text": user}},
 			},
 		},
 		"generationConfig": map[string]any{
 			"temperature":     0.95,
-			"maxOutputTokens": 80,
+			"maxOutputTokens": maxTokens,
 		},
 	}
 	raw, err := json.Marshal(body)
@@ -387,7 +405,7 @@ func callGemini(ctx context.Context, in Input) (string, error) {
 		return "", fmt.Errorf("gemini: %s", parsed.Error.Message)
 	}
 	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("empty gemini roast")
+		return "", fmt.Errorf("empty gemini response")
 	}
 	var b strings.Builder
 	for _, p := range parsed.Candidates[0].Content.Parts {
