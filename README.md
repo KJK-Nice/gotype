@@ -54,19 +54,24 @@ gotype
 
 ## Controls
 
-1. Pick **time**, **words**, or **quote** (`t` / `w` / `o`)
-2. Pick duration / word count / quote length (tab → value, ↑↓ to change)
-3. Enter to start — type the prompt
+1. Pick **time**, **words**, or **quote** (`t` / `w` / `o`, or `←/→` when mode is focused)
+2. Pick duration / word count / quote length (`↑/↓` to focus value row, `←/→` to change)
+3. Enter or space to start — type the prompt
 4. Results: WPM chart, accuracy, roast/stoic line
 
 | Key | Action |
 |-----|--------|
-| ↑↓ / j k | Change mode or value |
-| tab | Switch focus / restart test |
+| ↑↓ / j k | Switch focus between mode and value |
+| ←→ / h l | Change mode or value (by focus) |
+| tab | Toggle mode ↔ value focus |
 | t / w / o | Time / words / quote mode |
-| p | Cycle theme |
+| u | Cycle theme |
 | v | Toggle roast ↔ stoic voice |
 | n | Toggle ninja caret |
+| y | Toggle daily words |
+| g | Toggle pace ghost |
+| c | Claim / register player |
+| i / s / p / e | Inventory / shop / pass / equip |
 | m | Multiplayer (SSH) |
 | enter / space | Start or next test |
 | esc | Back to menu |
