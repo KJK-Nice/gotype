@@ -9,30 +9,30 @@ import (
 )
 
 const (
-	introTitle     = "gotype"
-	introFloor     = 400 * time.Millisecond
-	introDurA      = 1600 * time.Millisecond // full-screen rain
-	introDurB      = 2400 * time.Millisecond // rain + assemble title
-	introTotal     = introDurA + introDurB // 4s, then instant home
-	introTrailMin  = 4
-	introTrailMax  = 12
-	introColStride = 2
+	introFloor    = 400 * time.Millisecond
+	introDurA     = 2500 * time.Millisecond // heavy rain over home
+	introDurB     = 1500 * time.Millisecond // horizon wipe top→bottom
+	introTotal    = introDurA + introDurB   // 4s
+	introTrailMin = 4
+	introTrailMax = 12
+	introDenseW   = 100 // width ≤ this → stride 1
 )
 
-// ASCII soup for rain; title locks to real home sty.Title chars.
+// ASCII soup for amber rain overlay.
 const introGlyphs = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@#$%&*"
 
+// Fixed amber rain (default theme brand) — head / mid / dim.
 var (
-	introHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#c8ffc8")).Bold(true)
-	introMidStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ff41"))
-	introDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#003b00"))
+	introHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffe066")).Bold(true)
+	introMidStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2b714"))
+	introDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#5c4e12"))
 )
 
 type introStage int
 
 const (
 	introStageRain introStage = iota
-	introStageAssemble
+	introStageClear
 	introStageDone
 )
 
@@ -45,9 +45,17 @@ type rainCol struct {
 }
 
 type introRain struct {
-	w, h int
-	cols []rainCol
-	rng  *rand.Rand
+	w, h    int
+	stride  int
+	cols    []rainCol
+	rng     *rand.Rand
+}
+
+func introStride(w int) int {
+	if w <= introDenseW {
+		return 1
+	}
+	return 2
 }
 
 func newIntroRain(w, h int, seed int64) *introRain {
@@ -58,9 +66,10 @@ func newIntroRain(w, h int, seed int64) *introRain {
 		h = 24
 	}
 	r := &introRain{
-		w:   w,
-		h:   h,
-		rng: rand.New(rand.NewSource(seed)),
+		w:      w,
+		h:      h,
+		stride: introStride(w),
+		rng:    rand.New(rand.NewSource(seed)),
 	}
 	r.layout()
 	return r
@@ -74,17 +83,22 @@ func (r *introRain) rebuild(w, h int) {
 		h = 1
 	}
 	r.w, r.h = w, h
+	r.stride = introStride(w)
 	r.layout()
 }
 
 func (r *introRain) layout() {
-	n := (r.w + introColStride - 1) / introColStride
+	stride := r.stride
+	if stride < 1 {
+		stride = 2
+	}
+	n := (r.w + stride - 1) / stride
 	if n < 1 {
 		n = 1
 	}
 	r.cols = make([]rainCol, n)
 	for i := 0; i < n; i++ {
-		r.cols[i] = r.spawnCol(i * introColStride)
+		r.cols[i] = r.spawnCol(i * stride)
 	}
 }
 
@@ -163,30 +177,31 @@ func introProgress(elapsed time.Duration) (introStage, float64) {
 	case elapsed >= introTotal:
 		return introStageDone, 1
 	case elapsed >= introDurA:
-		return introStageAssemble, float64(elapsed-introDurA) / float64(introDurB)
+		return introStageClear, float64(elapsed-introDurA) / float64(introDurB)
 	default:
 		return introStageRain, float64(elapsed) / float64(introDurA)
 	}
 }
 
-func titleLockCount(stage introStage, stageProg float64) int {
+// clearY is the horizon: rows y < clearY are home; y >= clearY keep rain.
+func clearY(stage introStage, stageProg float64, h int) int {
 	switch stage {
 	case introStageRain:
 		return 0
-	case introStageAssemble:
+	case introStageClear:
 		if stageProg < 0 {
 			stageProg = 0
 		}
 		if stageProg > 1 {
 			stageProg = 1
 		}
-		n := int(stageProg*float64(len(introTitle)) + 0.5)
-		if n > len(introTitle) {
-			n = len(introTitle)
+		y := int(stageProg*float64(h) + 0.5)
+		if y > h {
+			return h
 		}
-		return n
+		return y
 	default:
-		return len(introTitle)
+		return h
 	}
 }
 
@@ -205,52 +220,33 @@ func styleRainGlyph(ch rune, bright int) string {
 	}
 }
 
-// renderScene paints rain on empty screen; locked title chars use home Title style.
-func (r *introRain) renderScene(lockN, titleRow, titleCol int, titleStyle lipgloss.Style) string {
-	if r == nil {
-		return ""
+// stampRainOver paints rain over home below the horizon (y >= clearY).
+func stampRainOver(home string, rain *introRain, clear int, w, h int) string {
+	if rain == nil || clear >= h {
+		return home
+	}
+	grid := parseANSIGrid(home, w, h)
+	for y := clear; y < h; y++ {
+		for x := 0; x < w; x++ {
+			ch, bright := rain.cell(x, y)
+			if bright == 0 {
+				grid[y][x] = " "
+				continue
+			}
+			grid[y][x] = styleRainGlyph(ch, bright)
+		}
 	}
 	var b strings.Builder
-	b.Grow(r.w * r.h * 8)
-	for y := 0; y < r.h; y++ {
-		for x := 0; x < r.w; x++ {
-			if y == titleRow && x >= titleCol && x < titleCol+lockN {
-				ch := introTitle[x-titleCol]
-				b.WriteString(titleStyle.Render(string(ch)))
-				continue
-			}
-			ch, bright := r.cell(x, y)
-			if bright == 0 {
-				b.WriteByte(' ')
-				continue
-			}
-			b.WriteString(styleRainGlyph(ch, bright))
+	b.Grow(w * h * 8)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			b.WriteString(grid[y][x])
 		}
-		if y < r.h-1 {
+		if y < h-1 {
 			b.WriteByte('\n')
 		}
 	}
 	return b.String()
-}
-
-// findTitleAnchor locates where "gotype" starts in a placed home frame.
-func findTitleAnchor(placed string, w, h int) (row, col int) {
-	grid := parseANSIGrid(placed, w, h)
-	for y := 0; y < h; y++ {
-		for x := 0; x <= w-len(introTitle); x++ {
-			ok := true
-			for i := 0; i < len(introTitle); i++ {
-				if cellRune(grid[y][x+i]) != rune(introTitle[i]) {
-					ok = false
-					break
-				}
-			}
-			if ok {
-				return y, x
-			}
-		}
-	}
-	return h / 3, max(0, (w-len(introTitle))/2)
 }
 
 func cellRune(cell string) rune {
