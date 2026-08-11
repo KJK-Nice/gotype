@@ -113,7 +113,7 @@ Tips and shop checkout use **Lightning** (BOLT11 QR) when Phoenixd is configured
 After solo runs: short roast of your WPM/acc.
 
 - No API key → local canned roasts
-- **Gemini:** `GEMINI_API_KEY` or `GOOGLE_API_KEY` (`ROAST_MODEL`, default `gemini-2.5-flash-lite`)
+- **Gemini:** `GEMINI_API_KEY` or `GOOGLE_API_KEY` (`ROAST_MODEL`, default `gemini-3.1-flash-lite`)
 - **OpenAI-compatible:** `ROAST_API_KEY` / `OPENAI_API_KEY`, optional `ROAST_BASE_URL`
 - **v** on menu toggles roast ↔ stoic
 
