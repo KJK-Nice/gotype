@@ -51,8 +51,8 @@ const (
 	providerGoogle provider = "google"
 
 	defaultOpenAIBase = "https://api.openai.com/v1"
-	defaultOpenAIModel = "gpt-4o-mini"
-	defaultGeminiModel = "gemini-2.5-flash-lite"
+	defaultOpenAIModel = "gpt-5.4-mini"
+	defaultGeminiModel = "gemini-3.1-flash-lite"
 	geminiBaseURL      = "https://generativelanguage.googleapis.com/v1beta"
 )
 
