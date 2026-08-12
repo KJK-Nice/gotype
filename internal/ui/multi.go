@@ -9,7 +9,6 @@ import (
 	"github.com/kjkusap/monkeytype-clone/internal/game"
 	"github.com/kjkusap/monkeytype-clone/internal/invite"
 	"github.com/kjkusap/monkeytype-clone/internal/multi"
-	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
 
 func (m Model) multiEnabled() bool {
@@ -41,11 +40,7 @@ func (m Model) updateMultiMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) execMultiAction(action string) (Model, tea.Cmd) {
 	switch action {
 	case "create":
-		cfg := m.cfg
-		if cfg.Mode == game.ModeAI {
-			cfg.Mode = game.ModeQuotes // AI solo-only
-		}
-		v, err := m.hub.Create(m.playerID, m.playerName, cfg)
+		v, err := m.hub.Create(m.playerID, m.playerName, m.cfg)
 		if err != nil {
 			m.statusErr = err.Error()
 			return m, nil
@@ -54,6 +49,7 @@ func (m Model) execMultiAction(action string) (Model, tea.Cmd) {
 		m.statusErr = ""
 		m.phase = phaseLobby
 		m.multiView = v
+		m.cfg = v.Config
 	case "join":
 		m.joinTI.SetValue("")
 		m.statusErr = ""
@@ -148,6 +144,9 @@ func (m Model) updateLobby(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.updatePodium(msg)
 		}
 	}
+	if nm, cmd, ok := m.updateRoomConfig(msg); ok {
+		return nm, cmd
+	}
 	switch msg.String() {
 	case "q":
 		m.leaveMulti()
@@ -169,7 +168,7 @@ func (m Model) updateLobby(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.multiView = v
 		m.applyMultiView(v)
 	case "h":
-		if m.multiView.Phase != multi.PhaseLobby {
+		if m.multiView.Phase != multi.PhaseLobby && m.multiView.Phase != multi.PhaseDone {
 			m.statusErr = "hardcore locked"
 			return m, nil
 		}
@@ -177,14 +176,8 @@ func (m Model) updateLobby(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.statusErr = "only host toggles hardcore"
 			return m, nil
 		}
-		v, err := m.hub.SetThreeStrike(m.playerID, !m.multiView.Config.ThreeStrike)
-		if err != nil {
-			m.statusErr = err.Error()
-			return m, nil
-		}
-		m.statusErr = ""
-		m.multiView = v
-		m.cfg = v.Config
+		m.toggleRoomHardcore()
+		return m, nil
 	case "g":
 		return m.sendChat("gg")
 	case "/":
@@ -203,6 +196,9 @@ func (m Model) updateLobby(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) updatePodium(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.chatMode {
 		return m.updateChat(msg)
+	}
+	if nm, cmd, ok := m.updateRoomConfig(msg); ok {
+		return nm, cmd
 	}
 	switch msg.String() {
 	case "q":
@@ -227,6 +223,14 @@ func (m Model) updatePodium(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.resetCaret()
 		m.multiView = v
 		m.phase = phaseLobby
+		m.syncRoomConfigFromView()
+	case "h":
+		if !m.multiView.YouAreHost {
+			m.statusErr = "only host toggles hardcore"
+			return m, nil
+		}
+		m.toggleRoomHardcore()
+		return m, nil
 	case "g":
 		return m.sendChat("gg")
 	case "/":
@@ -329,12 +333,20 @@ func (m *Model) maybeSyncMulti(force bool) {
 func (m *Model) applyMultiView(v multi.View) {
 	m.syncChatViewport()
 
+	if v.GenError != "" {
+		m.statusErr = v.GenError
+	}
+
 	if v.Phase == multi.PhaseCountdown {
 		if !m.cdOn {
 			m.queueCmd(m.startCountdownTimer(v.CountdownLeft))
 		}
 	} else {
 		m.stopCountdownTimer()
+	}
+
+	if v.Phase == multi.PhaseGenerating {
+		m.queueCmd(m.spin.Tick)
 	}
 
 	if v.YouAreSpectator {
@@ -357,12 +369,17 @@ func (m *Model) applyMultiView(v multi.View) {
 		return
 	}
 	switch v.Phase {
-	case multi.PhaseLobby, multi.PhaseCountdown:
+	case multi.PhaseLobby, multi.PhaseGenerating, multi.PhaseCountdown:
+		if m.phase != phaseTyping {
+			m.cfg = v.Config
+		}
 		if m.phase == phasePodium || m.raceStarted {
 			m.raceStarted = false
 			m.sess = nil
 			m.resetCaret()
-			m.statusErr = ""
+			if v.GenError == "" {
+				m.statusErr = ""
+			}
 			m.phase = phaseLobby
 			break
 		}
@@ -375,7 +392,11 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.cfg = v.Config
 			m.raceSeed = v.Seed
 			m.resetConsumableRace()
-			m.sess = game.NewSessionSeeded(v.Config, v.Seed)
+			if v.Config.Mode == game.ModeAI && v.PassageText != "" {
+				m.sess = game.NewSessionFromPassage(v.Config, v.PassageText, v.PassageAuthor)
+			} else {
+				m.sess = game.NewSessionSeeded(v.Config, v.Seed)
+			}
 			start := v.RaceStarted
 			if start.IsZero() {
 				start = m.now
@@ -393,6 +414,7 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.queueCmd(m.startRaceStopwatch())
 		}
 	case multi.PhaseDone:
+		m.cfg = v.Config
 		if m.sess != nil && !m.sess.Finished {
 			m.sess.ForceFinish(m.now)
 		}
@@ -458,17 +480,7 @@ func (m Model) viewLobby() string {
 	b.WriteString("  ")
 	b.WriteString(m.sty.Sub.Render("bo3"))
 	b.WriteString("\n")
-	detail := fmt.Sprintf("%s · %s", v.Config.Mode.String(), configDetail(v.Config, nil))
-	if v.Config.Daily {
-		detail += " · " + words.DailyHeadline(m.now)
-	}
-	if v.Config.ThreeStrike {
-		detail += " · hardcore · 3 HP · typo −1"
-	} else {
-		detail += " · classic"
-	}
-	b.WriteString(m.sty.Sub.Render(detail))
-	b.WriteString("\n")
+	b.WriteString(m.renderRoomConfigBlock(v))
 	if v.MatchPoint && v.Phase == multi.PhaseLobby {
 		b.WriteString(m.sty.Main.Render("⚔ MATCH POINT"))
 		b.WriteString("\n")
@@ -538,7 +550,7 @@ func (m Model) viewLobby() string {
 	if m.chatMode {
 		b.WriteString(m.renderHelp(helpChat()))
 	} else {
-		b.WriteString(m.renderHelp(helpLobby(v.YouAreHost && v.Phase == multi.PhaseLobby, v.Phase == multi.PhaseCountdown)))
+		b.WriteString(m.renderHelp(helpLobby(v.YouAreHost, v.Phase)))
 	}
 	return b.String()
 }
@@ -639,6 +651,7 @@ func (m Model) viewPodium() string {
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString(m.renderRoomConfigBlock(v))
 	b.WriteString("\n")
 	b.WriteString(m.viewChat())
 	b.WriteString(m.sty.Main.Render(invite.BeatMe(v.Code)))
@@ -648,7 +661,7 @@ func (m Model) viewPodium() string {
 	} else if left := m.resultLockLeft(); left > 0 {
 		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("keys in %ds…", int(left.Seconds()))))
 	} else {
-		b.WriteString(m.renderHelp(helpPodium(v.YouAreSpectator, v.MatchOver, v.MatchPoint)))
+		b.WriteString(m.renderHelp(helpPodium(v.YouAreSpectator, v.MatchOver, v.MatchPoint, m.roomConfigEditable() && m.resultLockLeft() == 0)))
 	}
 	return b.String()
 }

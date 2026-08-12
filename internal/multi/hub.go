@@ -1,6 +1,7 @@
 package multi
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kjkusap/monkeytype-clone/internal/game"
+	"github.com/kjkusap/monkeytype-clone/internal/quoteai"
 	"github.com/kjkusap/monkeytype-clone/internal/words"
 )
 
@@ -31,6 +33,7 @@ type Phase int
 
 const (
 	PhaseLobby Phase = iota
+	PhaseGenerating
 	PhaseCountdown
 	PhaseRacing
 	PhaseDone
@@ -38,6 +41,8 @@ const (
 
 func (p Phase) String() string {
 	switch p {
+	case PhaseGenerating:
+		return "generating"
 	case PhaseCountdown:
 		return "countdown"
 	case PhaseRacing:
@@ -93,6 +98,9 @@ type Room struct {
 	MatchWinnerID   string
 	LastRaceWinnerID string
 	RacesPlayed     int // finished races in this series
+	PassageText     string // AI mode: shared prompt for this race
+	PassageAuthor   string
+	GenError        string // AI generation failed; room returns to lobby
 	Chat            []ChatLine
 }
 
@@ -128,6 +136,9 @@ type View struct {
 	RaceNumber       int  // finished races this series (1 after first podium)
 	RaceWinnerName   string
 	MatchPoint       bool // someone is one win from taking the series
+	PassageText      string
+	PassageAuthor    string
+	GenError         string
 	Chat             []ChatLine
 	Err              string
 }
@@ -138,8 +149,9 @@ var (
 	ErrAlreadyInRoom = errors.New("already in a room")
 	ErrNotHost       = errors.New("only host can start")
 	ErrNotEnough     = errors.New("need at least 2 players")
-	ErrBadPhase      = errors.New("room not in lobby")
-	ErrNotDone       = errors.New("race not finished")
+	ErrBadPhase            = errors.New("room not in lobby")
+	ErrAIModeUnavailable   = errors.New("ai quotes unavailable")
+	ErrNotDone             = errors.New("race not finished")
 	ErrEmptyChat     = errors.New("empty message")
 	ErrNoLiveRace    = errors.New("no live race")
 )
@@ -239,7 +251,7 @@ func (h *Hub) Join(playerID, name, code string) (View, error) {
 		h.tickBotsLocked(room, now)
 		h.advanceLocked(room, now)
 
-		spectate := room.Phase == PhaseCountdown || room.Phase == PhaseRacing
+		spectate := room.Phase == PhaseCountdown || room.Phase == PhaseRacing || room.Phase == PhaseGenerating
 		if spectate {
 			if spectatorCountLocked(room) >= MaxSpectators {
 				return ErrRoomFull
@@ -344,7 +356,7 @@ func (h *Hub) Leave(playerID string) {
 	})
 }
 
-// SetThreeStrike toggles hardcore (Three-Strike) in lobby only; host only.
+// SetThreeStrike toggles hardcore (Three-Strike) in lobby or on podium; host only.
 func (h *Hub) SetThreeStrike(playerID string, on bool) (View, error) {
 	var view View
 	err := h.locked(func() error {
@@ -352,7 +364,7 @@ func (h *Hub) SetThreeStrike(playerID string, on bool) (View, error) {
 		if err != nil {
 			return err
 		}
-		if room.Phase != PhaseLobby {
+		if room.Phase != PhaseLobby && room.Phase != PhaseDone {
 			return ErrBadPhase
 		}
 		if room.HostID != playerID {
@@ -365,8 +377,37 @@ func (h *Hub) SetThreeStrike(playerID string, on bool) (View, error) {
 	return view, err
 }
 
+// SetConfig updates race mode/value in lobby or on podium; host only.
+func (h *Hub) SetConfig(playerID string, cfg game.Config) (View, error) {
+	var view View
+	err := h.locked(func() error {
+		room, err := h.roomForLocked(playerID)
+		if err != nil {
+			return err
+		}
+		if room.Phase != PhaseLobby && room.Phase != PhaseDone {
+			return ErrBadPhase
+		}
+		if room.HostID != playerID {
+			return ErrNotHost
+		}
+		if cfg.Mode == game.ModeAI && !quoteai.Configured() {
+			return ErrAIModeUnavailable
+		}
+		room.Config.Mode = cfg.Mode
+		room.Config.Duration = cfg.Duration
+		room.Config.WordCount = cfg.WordCount
+		room.Config.QuoteLen = cfg.QuoteLen
+		room.GenError = ""
+		view = h.viewLocked(room, playerID, time.Now())
+		return nil
+	})
+	return view, err
+}
+
 func (h *Hub) Start(playerID string, now time.Time) (View, error) {
 	var view View
+	var aiCode string
 	err := h.locked(func() error {
 		room, err := h.roomForLocked(playerID)
 		if err != nil {
@@ -391,12 +432,27 @@ func (h *Hub) Start(playerID string, now time.Time) (View, error) {
 			}
 		}
 		room.Seed = seed
+		room.Scored = false
+		room.GenError = ""
+		if room.Config.Mode == game.ModeAI {
+			if !quoteai.Configured() {
+				return ErrAIModeUnavailable
+			}
+			room.PassageText = ""
+			room.PassageAuthor = ""
+			room.Phase = PhaseGenerating
+			aiCode = room.Code
+			view = h.viewLocked(room, playerID, now)
+			return nil
+		}
 		room.Phase = PhaseCountdown
 		room.CountdownEnds = now.Add(CountdownSecs * time.Second)
-		room.Scored = false
 		view = h.viewLocked(room, playerID, now)
 		return nil
 	})
+	if err == nil && aiCode != "" {
+		h.spawnAIGeneration(aiCode)
+	}
 	return view, err
 }
 
@@ -423,6 +479,9 @@ func (h *Hub) Rematch(playerID string, now time.Time) (View, error) {
 		}
 		room.Phase = PhaseLobby
 		room.Seed = 0
+		room.PassageText = ""
+		room.PassageAuthor = ""
+		room.GenError = ""
 		room.CountdownEnds = time.Time{}
 		room.RaceStarted = time.Time{}
 		room.RaceEnds = time.Time{}
@@ -647,6 +706,9 @@ func (h *Hub) viewLocked(room *Room, playerID string, now time.Time) View {
 		Players:         players,
 		MatchOver:       room.MatchOver,
 		RaceNumber:      room.RacesPlayed,
+		PassageText:     room.PassageText,
+		PassageAuthor:   room.PassageAuthor,
+		GenError:        room.GenError,
 		Chat:            append([]ChatLine(nil), room.Chat...),
 	}
 	if room.MatchWinnerID != "" {
@@ -939,3 +1001,44 @@ func normalizeChat(text string) string {
 	}
 	return text
 }
+
+const aiGenTimeout = 8 * time.Second
+
+func (h *Hub) spawnAIGeneration(code string) {
+	go func() {
+		var qlen words.QuoteLen
+		if err := h.locked(func() error {
+			room := h.rooms[code]
+			if room == nil || room.Phase != PhaseGenerating {
+				return errSkipAIGen
+			}
+			qlen = room.Config.QuoteLen
+			return nil
+		}); err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), aiGenTimeout)
+		defer cancel()
+		p, err := quoteai.Generate(ctx, qlen)
+		_ = h.locked(func() error {
+			room := h.rooms[code]
+			if room == nil || room.Phase != PhaseGenerating {
+				return nil
+			}
+			now := time.Now()
+			if err != nil {
+				room.Phase = PhaseLobby
+				room.GenError = "ai quote failed: " + err.Error()
+				return nil
+			}
+			room.PassageText = p.Text
+			room.PassageAuthor = p.Author
+			room.GenError = ""
+			room.Phase = PhaseCountdown
+			room.CountdownEnds = now.Add(CountdownSecs * time.Second)
+			return nil
+		})
+	}()
+}
+
+var errSkipAIGen = errors.New("skip ai generation")
