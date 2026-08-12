@@ -340,9 +340,13 @@ func (m *Model) applyMultiView(v multi.View) {
 	if v.YouAreSpectator {
 		switch v.Phase {
 		case multi.PhaseDone:
+			entering := m.phase != phasePodium
 			m.sess = nil
 			m.raceStarted = false
 			m.phase = phasePodium
+			if entering {
+				m.armResultKeyLock()
+			}
 			m.syncPodiumTable()
 			m.queueCmd(m.stopRaceStopwatch())
 		default:
@@ -398,7 +402,11 @@ func (m *Model) applyMultiView(v multi.View) {
 		m.ghostRec = nil
 		dnf := m.sess != nil && m.sess.DNF
 		m.grantMultiXP(v.RaceNumber, dnf)
+		entering := m.phase != phasePodium
 		m.phase = phasePodium
+		if entering {
+			m.armResultKeyLock()
+		}
 		m.syncPodiumTable()
 		m.queueCmd(m.stopRaceStopwatch())
 	}
@@ -637,6 +645,8 @@ func (m Model) viewPodium() string {
 	b.WriteString("\n")
 	if m.chatMode {
 		b.WriteString(m.renderHelp(helpChat()))
+	} else if left := m.resultLockLeft(); left > 0 {
+		b.WriteString(m.sty.Sub.Render(fmt.Sprintf("keys in %ds…", int(left.Seconds()))))
 	} else {
 		b.WriteString(m.renderHelp(helpPodium(v.YouAreSpectator, v.MatchOver, v.MatchPoint)))
 	}
