@@ -54,8 +54,8 @@ func helpJoin() phaseKeyMap {
 	)
 }
 
-func helpLobby(host, countdown bool) phaseKeyMap {
-	if countdown {
+func helpLobby(host bool, phase multi.Phase) phaseKeyMap {
+	if phase == multi.PhaseCountdown {
 		return km(bind("esc", "esc", "leave"))
 	}
 	b := []key.Binding{
@@ -63,9 +63,11 @@ func helpLobby(host, countdown bool) phaseKeyMap {
 		bind("/", "/", "chat"),
 		bind("esc", "esc", "leave"),
 	}
-	if host {
+	if host && phase == multi.PhaseLobby {
 		b = append([]key.Binding{
 			bind("s/enter", "s", "start"),
+			bind("↑/↓", "↑", "mode/value"),
+			bind("←/→", "←", "change"),
 			bind("h", "h", "hardcore"),
 		}, b...)
 	}
@@ -80,11 +82,18 @@ func helpSpectate() phaseKeyMap {
 	)
 }
 
-func helpPodium(spectator, matchOver, matchPoint bool) phaseKeyMap {
+func helpPodium(spectator, matchOver, matchPoint, hostConfig bool) phaseKeyMap {
 	b := []key.Binding{
 		bind("g", "g", "gg"),
 		bind("/", "/", "chat"),
 		bind("esc", "esc", "leave"),
+	}
+	if hostConfig {
+		b = append([]key.Binding{
+			bind("↑/↓", "↑", "mode/value"),
+			bind("←/→", "←", "change"),
+			bind("h", "h", "hardcore"),
+		}, b...)
 	}
 	if !spectator {
 		label := "next"

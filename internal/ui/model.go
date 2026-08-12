@@ -508,9 +508,6 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "m":
 		if m.multiEnabled() {
 			m.statusErr = ""
-			if m.cfg.Mode == game.ModeAI {
-				m.cfg.Mode = game.ModeQuotes // AI solo-only
-			}
 			m.phase = phaseMultiMenu
 		}
 	case "u":
