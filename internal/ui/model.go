@@ -700,7 +700,7 @@ func (m *Model) finishSolo() tea.Cmd {
 	m.roastText = ""
 	m.roastLoading = true
 	m.clearTip()
-	m.resultKeysUntil = m.now.Add(resultKeyLock)
+	m.armResultKeyLock()
 	m.grantSoloXP()
 	stop := m.stopRaceStopwatch()
 	return tea.Batch(stop, m.roastCmd(), m.spin.Tick)
@@ -709,7 +709,14 @@ func (m *Model) finishSolo() tea.Cmd {
 const resultKeyLock = 3 * time.Second
 
 func (m Model) resultKeysLocked() bool {
-	return m.phase == phaseResult && !m.resultKeysUntil.IsZero() && m.now.Before(m.resultKeysUntil)
+	if m.resultKeysUntil.IsZero() || !m.now.Before(m.resultKeysUntil) {
+		return false
+	}
+	return m.phase == phaseResult || m.phase == phasePodium
+}
+
+func (m *Model) armResultKeyLock() {
+	m.resultKeysUntil = m.now.Add(resultKeyLock)
 }
 
 func (m Model) resultLockLeft() time.Duration {
