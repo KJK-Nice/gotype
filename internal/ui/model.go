@@ -218,7 +218,7 @@ func NewWithOptions(opts Options) Model {
 		playerName:   name,
 		sty:          NewStyles(0),
 		ninjaCaret:   false,
-		ghostOn:      true,
+		ghostOn:      false,
 		autoSpectate: opts.AutoSpectate,
 		app:          opts.App,
 		sessionID:    sessID,
