@@ -71,3 +71,19 @@ func TestFunnyQuotesInPool(t *testing.T) {
 		t.Fatalf("funny quotes missing a length bucket: short=%d medium=%d long=%d", funnyInShort, funnyInMedium, funnyInLong)
 	}
 }
+
+func TestPickQuoteCanReturnFunny(t *testing.T) {
+	funny := make(map[string]struct{}, len(FunnyQuotes))
+	for _, q := range FunnyQuotes {
+		if q.matches(QuoteShort) {
+			funny[q.Text] = struct{}{}
+		}
+	}
+	for seed := uint64(1); seed <= 500; seed++ {
+		q := PickQuote(QuoteShort, seed)
+		if _, ok := funny[q.Text]; ok {
+			return
+		}
+	}
+	t.Fatal("PickQuote never returned a short FunnyQuotes entry in 500 seeds")
+}
