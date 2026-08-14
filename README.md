@@ -2,7 +2,7 @@
 
 **Monkeytype energy, SSH chaos, terminal aesthetic.**
 
-Race your friends (or your ego) in a Bubble Tea TUI — solo time trials, multiplayer lobbies, stoic & Naval quotes, AI roasts, and optional Lightning tips. No browser tab. Just you, the prompt, and whoever else showed up on port 58372.
+Race your friends (or your ego) in a Bubble Tea TUI — solo time trials, multiplayer lobbies, stoic, Naval, and absurdist quotes, AI roasts, and optional Lightning tips. No browser tab. Just you, the prompt, and whoever else showed up on port 58372.
 
 ## Play now
 
@@ -31,7 +31,7 @@ Then: `ssh game.gotype.fun`
 
 - **Terminal-native** — WPM charts, ninja caret, themes, pace ghost. Feels like home if you live in `vim`/`tmux`.
 - **Multiplayer over SSH** — create a 4-letter room, trash-talk with `gg`, best-of-3 series, live race bars.
-- **Quote mode** — Marcus Aurelius, Seneca, **Naval Ravikant**, Paul Graham, and friends. Finish the passage or eat the L.
+- **Quote mode** — Marcus Aurelius, Seneca, **Naval Ravikant**, Paul Graham, and absurdist one-liners. Finish the passage or eat the L.
 - **Roast or stoic** — Gemini/OpenAI roasts your run, or a calm mentor line if you're fragile today.
 - **Progression** — register a Player, earn XP, Season Pass tiers, cosmetics, consumables, hardcore (Three-Strike) mode.
 - **Lightning** — tip the operator or buy shop items with sats (Phoenixd on Railway).
@@ -83,7 +83,7 @@ gotype
 |------|------|
 | **time** | 15 / 30 / 60 / 120 seconds |
 | **words** | 10 / 25 / 50 / 100 words |
-| **quote** | Short / medium / long passages — stoics, Naval, more |
+| **quote** | Short / medium / long passages — stoics, Naval, absurdist fake-wisdom |
 | **ai** | LLM stoic/Naval-ish passage (needs API key; solo only) |
 
 WPM = correct chars ÷ 5 ÷ minutes. Accuracy = correct ÷ typed.

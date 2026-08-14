@@ -59,7 +59,7 @@ func (q Quote) matches(qlen QuoteLen) bool {
 func PickQuote(qlen QuoteLen, seed uint64) Quote {
 	pool := quotesFor(qlen)
 	if len(pool) == 0 {
-		pool = StoicQuotes
+		pool = allQuotes()
 	}
 	var r *rand.Rand
 	if seed == 0 {
@@ -72,11 +72,18 @@ func PickQuote(qlen QuoteLen, seed uint64) Quote {
 
 func quotesFor(qlen QuoteLen) []Quote {
 	var out []Quote
-	for _, q := range StoicQuotes {
+	for _, q := range allQuotes() {
 		if q.matches(qlen) {
 			out = append(out, q)
 		}
 	}
+	return out
+}
+
+func allQuotes() []Quote {
+	out := make([]Quote, 0, len(StoicQuotes)+len(FunnyQuotes))
+	out = append(out, StoicQuotes...)
+	out = append(out, FunnyQuotes...)
 	return out
 }
 
@@ -145,4 +152,39 @@ var StoicQuotes = []Quote{
 	{Text: "Arm yourself with specific knowledge, accountability, and leverage. Specific knowledge is knowledge you care about. If you are not fully into it, somebody else who is will outperform you. They do not have to be smarter. They just have to be more focused.", Author: "Naval Ravikant"},
 	{Text: "In the long run, optimism is the only realism. Pessimists sound smart, optimists make money. The world is built by optimists who believe the future will be better and then work to make it so.", Author: "Naval Ravikant"},
 	{Text: "The best time to plant a tree was twenty years ago. The second best time is now.", Author: "Chinese proverb"},
+}
+
+// FunnyQuotes is absurdist fake-wisdom for quote races. Short tautologies plus
+// a few medium/long rambles so every length bucket can draw a joke.
+var FunnyQuotes = []Quote{
+	// short
+	{Text: "No one can use you if you are useless.", Author: "Anonymous"},
+	{Text: "The longer you don't pee the longer you pee.", Author: "Anonymous"},
+	{Text: "If your enemy can predict your next move then don't move.", Author: "Anonymous"},
+	{Text: "If you do nothing, nothing can go wrong, except the nothing.", Author: "Anonymous"},
+	{Text: "The secret to never being late is to never arrive.", Author: "Anonymous"},
+	{Text: "You cannot miss what you never aimed at.", Author: "Anonymous"},
+	{Text: "The fastest way to get there is to already be there.", Author: "Anonymous"},
+	{Text: "If you are lost, congratulations, you are exactly where you are.", Author: "Anonymous"},
+	{Text: "A closed door is just an open wall with extra steps.", Author: "Anonymous"},
+	{Text: "If you have two choices, pick the third.", Author: "Anonymous"},
+	{Text: "Never start a fight you cannot finish, unless you can start running.", Author: "Anonymous"},
+	{Text: "If you wait long enough, the bug becomes a feature.", Author: "Anonymous"},
+	{Text: "Don't bite the hand that feeds you. Bite the other one.", Author: "Anonymous"},
+	{Text: "The best defense is a good offense, unless you are on fire.", Author: "Anonymous"},
+	{Text: "If everything is important, then nothing is, including this sentence.", Author: "Anonymous"},
+	{Text: "You cannot drown in a desert, but you can still complain.", Author: "Anonymous"},
+	{Text: "Never put all your eggs in one basket. Put them in a fridge.", Author: "Anonymous"},
+	{Text: "If the mountain will not come to you, stop yelling at mountains.", Author: "Anonymous"},
+	{Text: "A journey of a thousand miles begins with forgetting why you left.", Author: "Anonymous"},
+	{Text: "Silence is golden, but typing is louder.", Author: "Anonymous"},
+
+	// medium
+	{Text: "If your enemy can predict your next move then don't move. If they predicted the not moving, lie down. If they predicted the lying down, you were never in this fight. You were in a nap.", Author: "Anonymous"},
+	{Text: "The longer you don't pee the longer you pee. This is the only natural law that has never been appealed, never been repealed, and never been remembered until it is already too late.", Author: "Anonymous"},
+	{Text: "No one can use you if you are useless. This is both a warning and a career strategy. Choose which one after lunch, or never, which is also a choice.", Author: "Anonymous"},
+	{Text: "If you have nothing, nobody can take it from you. If you have something, they still might not take it, but now you have to worry. This is why empty pockets sleep so well.", Author: "Anonymous"},
+
+	// long
+	{Text: "If your enemy can predict your next move then don't move. Stand very still until the prediction expires. If they predicted the standing still, sit down. If they predicted the sitting down, you have two options: leave, or pretend this was the plan the whole time. Pretending is cheaper. Leaving requires legs. Either way, they cannot use you if you are useless, and they cannot time your bathroom break if you never go. The longer you don't pee the longer you pee. History will not record this. Your bladder will.", Author: "Anonymous"},
 }
