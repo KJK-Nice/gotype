@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/kjkusap/monkeytype-clone/internal/catalog"
 	"github.com/kjkusap/monkeytype-clone/internal/ln"
@@ -74,7 +74,7 @@ func (m *Model) clearProg() {
 }
 
 func (m Model) progHotkeysActive() bool {
-	if m.claimMode != claimIdle || m.tipPhase != tipNone {
+	if m.claimMode != claimIdle || m.tipPhase != tipNone || m.chatMode {
 		return false
 	}
 	if m.prog == progBuyWait {
