@@ -33,3 +33,57 @@ func TestQuoteBucketsPopulated(t *testing.T) {
 		}
 	}
 }
+
+func TestFunnyQuotesInPool(t *testing.T) {
+	want := []string{
+		"No one can use you if you are useless.",
+		"The longer you don't pee the longer you pee.",
+		"If your enemy can predict your next move then don't move.",
+	}
+	short := quotesFor(QuoteShort)
+	found := make(map[string]bool, len(want))
+	for _, q := range short {
+		found[q.Text] = true
+	}
+	for _, text := range want {
+		if !found[text] {
+			t.Fatalf("missing short funny quote: %q", text)
+		}
+	}
+	if len(FunnyQuotes) == 0 {
+		t.Fatal("FunnyQuotes empty")
+	}
+	funnyInShort, funnyInMedium, funnyInLong := 0, 0, 0
+	for _, q := range FunnyQuotes {
+		if q.Author == "" {
+			t.Fatalf("funny quote missing author: %q", q.Text)
+		}
+		switch {
+		case q.matches(QuoteShort):
+			funnyInShort++
+		case q.matches(QuoteMedium):
+			funnyInMedium++
+		case q.matches(QuoteLong):
+			funnyInLong++
+		}
+	}
+	if funnyInShort == 0 || funnyInMedium == 0 || funnyInLong == 0 {
+		t.Fatalf("funny quotes missing a length bucket: short=%d medium=%d long=%d", funnyInShort, funnyInMedium, funnyInLong)
+	}
+}
+
+func TestPickQuoteCanReturnFunny(t *testing.T) {
+	funny := make(map[string]struct{}, len(FunnyQuotes))
+	for _, q := range FunnyQuotes {
+		if q.matches(QuoteShort) {
+			funny[q.Text] = struct{}{}
+		}
+	}
+	for seed := uint64(1); seed <= 500; seed++ {
+		q := PickQuote(QuoteShort, seed)
+		if _, ok := funny[q.Text]; ok {
+			return
+		}
+	}
+	t.Fatal("PickQuote never returned a short FunnyQuotes entry in 500 seeds")
+}
