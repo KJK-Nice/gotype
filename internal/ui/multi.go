@@ -242,18 +242,20 @@ func (m Model) updatePodium(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) closeChat() {
+	m.chatMode = false
+	m.chatTI.Blur()
+	m.chatTI.SetValue("")
+}
+
 func (m Model) updateChat(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.chatMode = false
-		m.chatTI.Blur()
-		m.chatTI.SetValue("")
+		m.closeChat()
 		return m, nil
 	case "enter":
 		text := strings.TrimSpace(m.chatTI.Value())
-		m.chatMode = false
-		m.chatTI.Blur()
-		m.chatTI.SetValue("")
+		m.closeChat()
 		if text == "" {
 			return m, nil
 		}
@@ -283,9 +285,7 @@ func (m *Model) leaveMulti() {
 	m.multiView = multi.View{}
 	m.raceStarted = false
 	m.statusErr = ""
-	m.chatMode = false
-	m.chatTI.Blur()
-	m.chatTI.SetValue("")
+	m.closeChat()
 	m.joinTI.Blur()
 	m.joinTI.SetValue("")
 	m.stopCountdownTimer()
@@ -410,6 +410,7 @@ func (m *Model) applyMultiView(v multi.View) {
 			m.raceBars = nil
 			m.shake = spring1D{}
 			m.resetCaret()
+			m.closeChat()
 			m.phase = phaseTyping
 			m.queueCmd(m.startRaceStopwatch())
 		}

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/progress"
@@ -17,6 +16,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/timer"
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/kjkusap/monkeytype-clone/internal/game"
@@ -84,7 +84,7 @@ type Model struct {
 	lastBlink  time.Time
 	lastMulti  time.Time // throttle hub sync over SSH
 
-	shake    spring1D                   // error screen shake (cells)
+	shake    spring1D                  // error screen shake (cells)
 	raceBars map[string]progress.Model // playerID → animated race bar
 
 	// Login intro (ASCII rain → assemble "gotype" → home).
@@ -119,7 +119,7 @@ type Model struct {
 	themeIdx     int
 	sty          Styles // per-session theme (not process-global)
 	voice        roast.Voice
-	ninjaCaret   bool // smooth caret + fading trail
+	ninjaCaret   bool      // smooth caret + fading trail
 	paceGhost    PaceGhost // last race to chase
 	ghostRec     PaceGhost // recording current race
 	ghostOn      bool      // show pace ghost caret
@@ -149,17 +149,17 @@ type Model struct {
 	claimWalletK1 string
 	claimWalletQR string
 
-	prog       progSurface
+	prog          progSurface
 	shopList      list.Model
 	invList       list.Model
 	equipList     list.Model
 	multiMenuList list.Model
 	claimList     list.Model
 	buyOrder      persist.Order
-	buyQR      string
-	buyErr     string
-	lastXPLine string
-	multiXPRace int
+	buyQR         string
+	buyErr        string
+	lastXPLine    string
+	multiXPRace   int
 
 	// consumables (in-race)
 	usedConsumable map[string]bool
@@ -439,6 +439,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.claimMode != claimIdle {
 		return m.updateClaim(msg)
+	}
+	if m.chatMode {
+		return m.updateChat(msg)
 	}
 	// Post-finish buffer: eat keys (incl. i/s/p/e) so last keystrokes don't navigate away.
 	if m.resultKeysLocked() {
