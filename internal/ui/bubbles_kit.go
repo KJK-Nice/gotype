@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
@@ -15,6 +14,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/timer"
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/kjkusap/monkeytype-clone/internal/ln"
 	"github.com/kjkusap/monkeytype-clone/internal/multi"
@@ -287,21 +287,18 @@ func (m *Model) initBubbles() {
 	m.invList = newMenuList(w, h, "", nil)
 	m.equipList = newMenuList(w, min(8, h), "", nil)
 	m.multiMenuList = newMultiMenuList()
-	m.claimList = newClaimList(false, false)
 }
 
 func (m *Model) applyBubblesTheme() {
 	m.sty.ApplyHelp(&m.help)
 	m.sty.ApplyTextInput(&m.joinTI)
 	m.sty.ApplyTextInput(&m.chatTI)
-	m.sty.ApplyTextInput(&m.claimNameTI)
-	m.sty.ApplyTextInput(&m.claimCodeTI)
+	m.sty.ApplyTextInput(&m.loginNameTI)
 	m.sty.ApplyList(&m.tipList)
 	m.sty.ApplyList(&m.shopList)
 	m.sty.ApplyList(&m.invList)
 	m.sty.ApplyList(&m.equipList)
 	m.sty.ApplyList(&m.multiMenuList)
-	m.sty.ApplyList(&m.claimList)
 	m.sty.ApplyTable(&m.podiumTable)
 }
 

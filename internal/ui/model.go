@@ -140,21 +140,17 @@ type Model struct {
 	remoteIP  string
 	claimedID string
 
-	claimMode   claimMode
-	claimNameTI textinput.Model
-	claimCodeTI textinput.Model
-	claimErr    string
-	claimShown  string
-
-	claimWalletK1 string
-	claimWalletQR string
+	loginMode     loginMode
+	loginNameTI   textinput.Model
+	loginErr      string
+	loginWalletK1 string
+	loginWalletQR string
 
 	prog          progSurface
 	shopList      list.Model
 	invList       list.Model
 	equipList     list.Model
 	multiMenuList list.Model
-	claimList     list.Model
 	buyOrder      persist.Order
 	buyQR         string
 	buyErr        string
@@ -230,7 +226,7 @@ func NewWithOptions(opts Options) Model {
 		m.beginIntro()
 	}
 	m.initBubbles()
-	m.initClaimInputs()
+	m.initLoginInputs()
 	m.applyBubblesTheme()
 	return m
 }
@@ -368,8 +364,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tipLoadingDone(msg)
 		return m, tea.Batch(cmds...)
 
-	case claimMsg:
-		m.applyClaimMsg(msg)
+	case loginMsg:
+		m.applyLoginMsg(msg)
 		return m, tea.Batch(cmds...)
 
 	case walletStartMsg:
@@ -437,8 +433,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.phase == phaseIntro {
 		return m.updateIntro(msg)
 	}
-	if m.claimMode != claimIdle {
-		return m.updateClaim(msg)
+	if m.loginMode != loginIdle {
+		return m.updateLogin(msg)
 	}
 	if m.chatMode {
 		return m.updateChat(msg)
@@ -490,7 +486,7 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.toggleConfigFocus()
 	case "left", "h":
 		m.nudgeConfig(-1)
-	case "right", "l":
+	case "right":
 		m.nudgeConfig(1)
 	case "t":
 		m.cfg.Mode = game.ModeTime
@@ -518,8 +514,8 @@ func (m Model) updateConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.sty = NewStyles(m.themeIdx)
 		m.applyBubblesTheme()
 		m.raceBars = nil // rebuild with new theme colors
-	case "c":
-		m.openClaim()
+	case "l":
+		return m, m.openLogin()
 	case "v":
 		if m.voice == roast.VoiceRoast {
 			m.voice = roast.VoiceStoic
@@ -874,7 +870,7 @@ func (m Model) View() tea.View {
 	}
 
 	// Full-bleed login rain — no box chrome.
-	if m.phase == phaseIntro && m.claimMode == claimIdle && m.prog == progNone {
+	if m.phase == phaseIntro && m.loginMode == loginIdle && m.prog == progNone {
 		v := tea.NewView(m.viewIntro())
 		v.AltScreen = true
 		return v
@@ -882,8 +878,8 @@ func (m Model) View() tea.View {
 
 	var body string
 	switch {
-	case m.claimMode != claimIdle:
-		body = m.viewClaim()
+	case m.loginMode != loginIdle:
+		body = m.viewLogin()
 	case m.prog == progBuyWait:
 		body = m.viewBuyWait()
 	case m.prog != progNone:

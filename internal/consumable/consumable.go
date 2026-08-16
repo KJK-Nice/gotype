@@ -32,7 +32,7 @@ type Context struct {
 }
 
 var (
-	ErrNotClaimed   = errors.New("claim a Player to use consumables")
+	ErrNotClaimed   = errors.New("login to use consumables")
 	ErrMatchPoint   = errors.New("match point — consumables off")
 	ErrUnavailable  = errors.New("consumable unavailable")
 	ErrNoStock      = errors.New("none in inventory")
@@ -116,7 +116,7 @@ func TrySpend(store *persist.Store, playerID, sku string, ctx Context) (Effect, 
 func ErrMessage(err error) string {
 	switch {
 	case errors.Is(err, ErrNotClaimed):
-		return "claim a Player to use consumables"
+		return "login to use consumables"
 	case errors.Is(err, ErrMatchPoint):
 		return "match point — consumables off"
 	case errors.Is(err, ErrNoStock):

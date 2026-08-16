@@ -38,25 +38,24 @@ type buyPollMsg struct {
 	err   string
 }
 
-func (m *Model) openProg(s progSurface) {
+func (m *Model) openProg(s progSurface) tea.Cmd {
 	if m.app == nil {
 		m.statusErr = "progression unavailable"
-		return
+		return nil
 	}
 	if !m.isClaimed() {
-		m.openClaim()
-		return
+		return m.openLogin()
 	}
 	if !m.sessionActive() {
 		m.claimedID = ""
-		m.statusErr = "session claimed elsewhere — reclaim"
-		m.openClaim()
-		return
+		m.statusErr = "session logged in elsewhere — login"
+		return m.openLogin()
 	}
 	m.prog = s
 	m.buyErr = ""
 	m.statusErr = ""
 	m.syncProgLists()
+	return nil
 }
 
 func (m Model) sessionActive() bool {
@@ -74,7 +73,7 @@ func (m *Model) clearProg() {
 }
 
 func (m Model) progHotkeysActive() bool {
-	if m.claimMode != claimIdle || m.tipPhase != tipNone || m.chatMode {
+	if m.loginMode != loginIdle || m.tipPhase != tipNone || m.chatMode {
 		return false
 	}
 	if m.prog == progBuyWait {
@@ -95,32 +94,24 @@ func (m Model) tryProgHotkey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if m.prog != progNone && m.prog != progBuyWait {
 		switch msg.String() {
 		case "i":
-			m.openProg(progInventory)
-			return m, nil, true
+			return m, m.openProg(progInventory), true
 		case "s":
-			m.openProg(progShop)
-			return m, nil, true
+			return m, m.openProg(progShop), true
 		case "p":
-			m.openProg(progPass)
-			return m, nil, true
+			return m, m.openProg(progPass), true
 		case "e":
-			m.openProg(progEquip)
-			return m, nil, true
+			return m, m.openProg(progEquip), true
 		}
 	}
 	switch msg.String() {
 	case "i":
-		m.openProg(progInventory)
-		return m, nil, true
+		return m, m.openProg(progInventory), true
 	case "s":
-		m.openProg(progShop)
-		return m, nil, true
+		return m, m.openProg(progShop), true
 	case "p":
-		m.openProg(progPass)
-		return m, nil, true
+		return m, m.openProg(progPass), true
 	case "e":
-		m.openProg(progEquip)
-		return m, nil, true
+		return m, m.openProg(progEquip), true
 	}
 	return m, nil, false
 }
@@ -156,7 +147,7 @@ func (m Model) updateProg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc":
 			m.clearProg()
-			m.openProg(progShop)
+			_ = m.openProg(progShop)
 		case "q":
 			return m, tea.Quit
 		}
@@ -231,10 +222,10 @@ func (m *Model) cycleEquip(slot catalog.Slot) {
 func (m Model) buyCreateCmd(sku string) tea.Cmd {
 	return func() tea.Msg {
 		if m.app == nil || !m.isClaimed() {
-			return buyMsg{err: "claim a Player first"}
+			return buyMsg{err: "login first"}
 		}
 		if !m.app.Store.HasActiveSession(m.claimedID, m.sessionID) {
-			return buyMsg{err: "session claimed elsewhere — reclaim"}
+			return buyMsg{err: "session logged in elsewhere — login"}
 		}
 		o, err := m.app.Shop.CreateBuy(context.Background(), m.claimedID, sku, time.Now())
 		if err != nil {

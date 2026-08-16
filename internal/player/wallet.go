@@ -45,7 +45,7 @@ func (s *Service) RegisterWithLinkingKey(name, linkingKey, ip, sessionID string,
 	return p, nil
 }
 
-// LoginWithLinkingKey reclaims a Player via wallet linking key.
+// LoginWithLinkingKey logs in a Player via wallet linking key.
 func (s *Service) LoginWithLinkingKey(linkingKey, ip, sessionID string, now time.Time) (persist.Player, error) {
 	if err := s.allow("claim:"+ip, now); err != nil {
 		return persist.Player{}, err

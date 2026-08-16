@@ -33,7 +33,7 @@ Then: `ssh game.gotype.fun`
 - **Multiplayer over SSH** — create a 4-letter room, trash-talk with `gg`, best-of-3 series, live race bars.
 - **Quote mode** — Marcus Aurelius, Seneca, **Naval Ravikant**, Paul Graham, and absurdist one-liners. Finish the passage or eat the L.
 - **Roast or stoic** — Gemini/OpenAI roasts your run, or a calm mentor line if you're fragile today.
-- **Progression** — register a Player, earn XP, Season Pass tiers, cosmetics, consumables, hardcore (Three-Strike) mode.
+- **Progression** — login with a Lightning wallet, earn XP, Season Pass tiers, cosmetics, consumables, hardcore (Three-Strike) mode.
 - **Lightning** — tip the operator or buy shop items with sats (Phoenixd on Railway).
 
 Built with Go + [Bubble Tea v2](https://github.com/charmbracelet/bubbletea). Deployed on [Railway](https://railway.com). Architecture in [ARCHITECTURE.md](./ARCHITECTURE.md).
@@ -62,7 +62,7 @@ gotype
 | Key | Action |
 |-----|--------|
 | ↑↓ / j k | Switch focus between mode and value |
-| ←→ / h l | Change mode or value (by focus) |
+| ←→ | Change mode or value (by focus) |
 | tab | Toggle mode ↔ value focus |
 | t / w / o / a | Time / words / quote / ai mode (`a` needs LLM key) |
 | u | Cycle theme |
@@ -70,7 +70,7 @@ gotype
 | n | Toggle ninja caret |
 | y | Toggle daily words |
 | g | Toggle pace ghost |
-| c | Claim / register player |
+| l | Login with Lightning wallet |
 | i / s / p / e | Inventory / shop / pass / equip |
 | m | Multiplayer (SSH) |
 | enter / space | Start or next test |
@@ -104,7 +104,7 @@ Enable **hardcore** (Three-Strike) in lobby — 3 HP, typos hurt, Heart consumab
 
 ## Progression & shop (SSH)
 
-Register a **Player** (display name + secret claim code). Earn XP from races, unlock Season Pass tiers, equip cosmetics (themes, carets, FX), buy consumables with sats.
+Login with a **Lightning wallet** (LNURL-auth — Phoenix, Zeus, Breez, Alby, or Blink). Earn XP from races, unlock Season Pass tiers, equip cosmetics (themes, carets, FX), buy consumables with sats.
 
 Tips and shop checkout use **Lightning** (BOLT11 QR) when Phoenixd is configured on the server.
 

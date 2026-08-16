@@ -16,6 +16,7 @@ type PaymentView struct {
 	Bolt11   string
 	Spinner  string
 	Status   string // waiting, paid, error line
+	Hint     string // extra line (e.g. wallet names)
 	Err      string
 	Done     bool
 }
@@ -36,6 +37,10 @@ func (m Model) renderPayment(pv PaymentView, keys phaseKeyMap) string {
 		}
 		if pv.Subtitle != "" {
 			body.WriteString(m.sty.Sub.Render(pv.Subtitle))
+			body.WriteString("\n")
+		}
+		if pv.Hint != "" {
+			body.WriteString(m.sty.Sub.Render(pv.Hint))
 			body.WriteString("\n")
 		}
 		body.WriteString("\n")
