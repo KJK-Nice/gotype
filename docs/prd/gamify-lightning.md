@@ -35,8 +35,9 @@ Existing today: Tip via LNURL-pay → bolt11 QR (`internal/ln`). Multi races wit
 |---|---|
 | Season length | 60 days |
 | Tracks | 20 free + 20 premium (shared XP thresholds) |
-| XP solo finish | 10 |
-| XP multi finish | 25 |
+| XP solo finish | 10 base + Combo bonus |
+| XP multi finish | 25 base + Combo bonus |
+| Combo bonus | +1 XP per 10 Best Combo, max +10 |
 | Incomplete / spectate | 0 XP |
 | Daily soft cap | 200 XP / UTC day (extra races grant 0 Season XP) |
 | Curve | Linear 100 XP / tier → 2000 XP to tier 20 |
@@ -130,7 +131,7 @@ Not SQL — implementer chooses store.
 
 | Entity | Role |
 |---|---|
-| Player | Identity, claim hash, rename flag, activeSessionID |
+| Player | Identity, claim hash, rename flag, activeSessionID, Combo PB |
 | InventoryItem | Player + SKU + qty/owned |
 | Equipment | Player + slot → SKU |
 | Season | Window + track definition ref |

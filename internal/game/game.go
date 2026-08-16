@@ -98,6 +98,9 @@ type Session struct {
 
 	// RevealThroughWord is the last word index (inclusive) shown as a peek ahead.
 	RevealThroughWord int
+
+	// committedWordIdx is the last WordIdx that contributed to Chain (-1 none).
+	committedWordIdx int
 }
 
 const (
@@ -140,10 +143,11 @@ func NewSessionSeeded(cfg Config, seed uint64) *Session {
 		}
 	}
 	s := &Session{
-		Config:      cfg,
-		Words:       w,
-		Typed:       make([][]rune, len(w)),
-		QuoteAuthor: author,
+		Config:           cfg,
+		Words:            w,
+		Typed:            make([][]rune, len(w)),
+		QuoteAuthor:      author,
+		committedWordIdx: -1,
 	}
 	if cfg.ThreeStrike {
 		s.HP = ThreeStrikeStartHP
@@ -161,10 +165,11 @@ func NewSessionFromPassage(cfg Config, text, author string) *Session {
 	}
 	cfg.WordCount = len(w)
 	s := &Session{
-		Config:      cfg,
-		Words:       w,
-		Typed:       make([][]rune, len(w)),
-		QuoteAuthor: author,
+		Config:           cfg,
+		Words:            w,
+		Typed:            make([][]rune, len(w)),
+		QuoteAuthor:      author,
+		committedWordIdx: -1,
 	}
 	if cfg.ThreeStrike {
 		s.HP = ThreeStrikeStartHP
@@ -327,10 +332,11 @@ func (s *Session) ResetRace() {
 	cfg := s.Config
 	author := s.QuoteAuthor
 	*s = Session{
-		Config:      cfg,
-		Words:       words,
-		QuoteAuthor: author,
-		Typed:       make([][]rune, len(words)),
+		Config:           cfg,
+		Words:            words,
+		QuoteAuthor:      author,
+		Typed:            make([][]rune, len(words)),
+		committedWordIdx: -1,
 	}
 	if cfg.ThreeStrike {
 		s.HP = ThreeStrikeStartHP
@@ -390,6 +396,8 @@ func (s *Session) HandleSpace(now time.Time) {
 		}
 	}
 
+	s.commitWord(string(typed) == string(word))
+
 	if s.WordIdx >= len(s.Words)-1 {
 		if s.Config.Mode.EndsOnPrompt() {
 			s.finish(now)
@@ -437,6 +445,15 @@ func (s *Session) HandleBackspace(now time.Time) {
 	s.rebuildChars()
 }
 
+// commitWord records Chain for the current word once.
+func (s *Session) commitWord(perfect bool) {
+	if s.WordIdx == s.committedWordIdx {
+		return
+	}
+	s.Stats.RecordWord(perfect)
+	s.committedWordIdx = s.WordIdx
+}
+
 func (s *Session) checkWordComplete(now time.Time) {
 	if !s.Config.Mode.EndsOnPrompt() {
 		return
@@ -446,6 +463,7 @@ func (s *Session) checkWordComplete(now time.Time) {
 		word := s.Words[s.WordIdx]
 		typed := string(s.Typed[s.WordIdx])
 		if typed == word {
+			s.commitWord(true)
 			s.finish(now)
 		}
 	}
@@ -503,6 +521,13 @@ func (s *Session) ForceFinish(now time.Time) {
 }
 
 func (s *Session) finish(now time.Time) {
+	if s.WordIdx < len(s.Words) {
+		word := s.Words[s.WordIdx]
+		typed := string(s.Typed[s.WordIdx])
+		if typed == word && typed != "" {
+			s.commitWord(true)
+		}
+	}
 	s.Finished = true
 	s.Stats.Finish(now)
 	s.Sample(now)

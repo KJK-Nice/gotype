@@ -444,15 +444,23 @@ func (m *Model) grantSoloXP() {
 	if m.app == nil || !m.isClaimed() || m.sess == nil || !m.sessionActive() {
 		return
 	}
+	best := m.sess.Snapshot(m.now).BestCombo
 	if m.sess.DNF {
+		g, err := m.app.Progress.NoteBestCombo(m.claimedID, best)
+		if err == nil {
+			m.lastComboPB = g.ComboPB
+			m.comboPBNew = g.ComboPBNew
+		}
 		m.lastXPLine = "+0 xp · DNF"
 		return
 	}
-	g, err := m.app.Progress.GrantFinish(m.claimedID, progress.FinishSolo, time.Now())
+	g, err := m.app.Progress.GrantFinish(m.claimedID, progress.FinishSolo, best, time.Now())
 	if err != nil {
 		m.lastXPLine = ""
 		return
 	}
+	m.lastComboPB = g.ComboPB
+	m.comboPBNew = g.ComboPBNew
 	m.lastXPLine = progress.FormatGrantLine(g)
 }
 
@@ -465,13 +473,24 @@ func (m *Model) grantMultiXP(raceNumber int, dnf bool) {
 		return
 	}
 	m.multiXPRace = raceNumber
+	best := 0
+	if m.sess != nil {
+		best = m.sess.Snapshot(m.now).BestCombo
+	}
 	if dnf {
+		g, err := m.app.Progress.NoteBestCombo(m.claimedID, best)
+		if err == nil {
+			m.lastComboPB = g.ComboPB
+			m.comboPBNew = g.ComboPBNew
+		}
 		m.lastXPLine = "+0 xp · DNF"
 		return
 	}
-	g, err := m.app.Progress.GrantFinish(m.claimedID, progress.FinishMulti, time.Now())
+	g, err := m.app.Progress.GrantFinish(m.claimedID, progress.FinishMulti, best, time.Now())
 	if err != nil {
 		return
 	}
+	m.lastComboPB = g.ComboPB
+	m.comboPBNew = g.ComboPBNew
 	m.lastXPLine = progress.FormatGrantLine(g)
 }

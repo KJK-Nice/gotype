@@ -34,6 +34,10 @@ type Snapshot struct {
 	Extra     int
 	Missed    int
 	Elapsed   time.Duration
+	Combo     int
+	BestCombo int
+	Chain     int
+	BestChain int
 }
 
 // Calculator tracks keystroke outcomes for WPM/accuracy.
@@ -42,6 +46,10 @@ type Calculator struct {
 	Incorrect int
 	Extra     int
 	Missed    int
+	Combo     int
+	BestCombo int
+	Chain     int
+	BestChain int
 	Strokes   []Stroke
 	StartedAt time.Time
 	endedAt   time.Time
@@ -82,10 +90,16 @@ func (c *Calculator) Record(kind StrokeKind, now time.Time) {
 	switch kind {
 	case StrokeCorrect:
 		c.Correct++
+		c.Combo++
+		if c.Combo > c.BestCombo {
+			c.BestCombo = c.Combo
+		}
 	case StrokeIncorrect:
 		c.Incorrect++
+		c.Combo = 0
 	case StrokeExtra:
 		c.Extra++
+		c.Combo = 0
 	}
 }
 
@@ -101,6 +115,9 @@ func (c *Calculator) Unrecord(kind StrokeKind) bool {
 			c.Correct--
 			if c.Correct < 0 {
 				c.Correct = 0
+			}
+			if c.Combo > 0 {
+				c.Combo--
 			}
 		case StrokeIncorrect:
 			c.Incorrect--
@@ -149,7 +166,24 @@ func (c *Calculator) Snapshot(now time.Time) Snapshot {
 		Extra:     c.Extra,
 		Missed:    c.Missed,
 		Elapsed:   elapsed,
+		Combo:     c.Combo,
+		BestCombo: c.BestCombo,
+		Chain:     c.Chain,
+		BestChain: c.BestChain,
 	}
+}
+
+// RecordWord notes a committed word. Perfect (typed == prompt) extends Chain;
+// any other commit resets it. Incomplete words should not call this.
+func (c *Calculator) RecordWord(perfect bool) {
+	if perfect {
+		c.Chain++
+		if c.Chain > c.BestChain {
+			c.BestChain = c.Chain
+		}
+		return
+	}
+	c.Chain = 0
 }
 
 // BurstWindow is the rolling window used for chart WPM samples.

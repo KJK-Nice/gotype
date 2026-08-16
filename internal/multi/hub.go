@@ -55,13 +55,16 @@ func (p Phase) String() string {
 }
 
 type Progress struct {
-	WPM      float64
-	Accuracy float64
-	Correct  int
-	Chars    int
-	Done     bool
-	HP       int  // Three-Strike; 0 when classic
-	DNF      bool // Three-Strike elimination
+	WPM       float64
+	Accuracy  float64
+	Correct   int
+	Chars     int
+	Done      bool
+	HP        int  // Three-Strike; 0 when classic
+	DNF       bool // Three-Strike elimination
+	Combo     int
+	BestCombo int
+	Chain     int
 }
 
 type ChatLine struct {

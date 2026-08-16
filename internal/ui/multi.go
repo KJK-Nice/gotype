@@ -309,13 +309,16 @@ func (m *Model) maybeSyncMulti(force bool) {
 		snap := m.sess.Snapshot(m.now)
 		chars := m.sess.ProgressChars()
 		v = m.hub.Report(m.playerID, multi.Progress{
-			WPM:      snap.WPM,
-			Accuracy: snap.Accuracy,
-			Correct:  snap.Correct,
-			Chars:    chars,
-			Done:     m.sess.Finished || m.sess.DNF,
-			HP:       m.sess.HP,
-			DNF:      m.sess.DNF,
+			WPM:       snap.WPM,
+			Accuracy:  snap.Accuracy,
+			Correct:   snap.Correct,
+			Chars:     chars,
+			Done:      m.sess.Finished || m.sess.DNF,
+			HP:        m.sess.HP,
+			DNF:       m.sess.DNF,
+			Combo:     snap.Combo,
+			BestCombo: snap.BestCombo,
+			Chain:     snap.Chain,
 		}, m.now)
 	} else {
 		v = m.hub.Snapshot(m.playerID, m.now)
@@ -595,6 +598,10 @@ func (m Model) viewRaceOpponents() string {
 		b.WriteString(" ")
 		b.WriteString(m.sty.StatValue.Render(fmt.Sprintf("%3.0f", p.Prog.WPM)))
 		b.WriteString(m.sty.Sub.Render(" wpm "))
+		if h := comboHUD(p.Prog.Combo); h != "" {
+			b.WriteString(m.sty.StatValue.Render(h))
+			b.WriteString(" ")
+		}
 		b.WriteString(m.raceBarView(p.ID))
 		b.WriteString(m.sty.Sub.Render(fmt.Sprintf(" %d", p.MatchWins)))
 		if p.Prog.Done {
@@ -648,9 +655,13 @@ func (m Model) viewPodium() string {
 		if snap.Correct+snap.Incorrect+snap.Extra == 0 {
 			b.WriteString(m.sty.Sub.Render("you · 0 wpm · — acc (no input)"))
 		} else {
-			b.WriteString(m.sty.Sub.Render(fmt.Sprintf("you · %.0f wpm · %.0f%% acc", snap.WPM, snap.Accuracy)))
+			b.WriteString(m.sty.Sub.Render(fmt.Sprintf("you · %.0f wpm · %.0f%% acc · combo %d · chain %d", snap.WPM, snap.Accuracy, snap.BestCombo, snap.BestChain)))
 		}
 		b.WriteString("\n")
+		if m.lastXPLine != "" {
+			b.WriteString(m.sty.Main.Render(m.lastXPLine))
+			b.WriteString("\n")
+		}
 	}
 	b.WriteString(m.renderRoomConfigBlock(v))
 	b.WriteString("\n")

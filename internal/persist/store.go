@@ -320,6 +320,27 @@ func (s *Store) RenamePlayer(playerID, newName, newKey string) error {
 	})
 }
 
+// RecordBestCombo raises Combo PB when combo is a new personal best.
+func (s *Store) RecordBestCombo(playerID string, combo int) (int, bool, error) {
+	var pb int
+	var improved bool
+	err := s.mutate(func(d *db) error {
+		p, ok := d.Players[playerID]
+		if !ok {
+			return ErrNotFound
+		}
+		pb = p.BestCombo
+		if combo > p.BestCombo {
+			p.BestCombo = combo
+			d.Players[playerID] = p
+			pb = combo
+			improved = true
+		}
+		return nil
+	})
+	return pb, improved, err
+}
+
 // GetOrCreateProgress returns SeasonProgress for player/season.
 func (s *Store) GetOrCreateProgress(playerID string, seasonID int) (SeasonProgress, error) {
 	var out SeasonProgress

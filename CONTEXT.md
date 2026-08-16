@@ -61,8 +61,28 @@ The Player's progress on the current Season's free and premium tracks, fueled by
 _Avoid_: battle pass (prefer Season Pass), BPass
 
 **XP**:
-Soft progression points earned from finishing solo or multi races, subject to a soft daily cap.
+Soft progression points earned from finishing solo or multi races (base plus a Combo bonus), subject to a soft daily cap.
 _Avoid_: points, score (for progression)
+
+**Combo**:
+Consecutive correct character commits in the current race. Breaks on an incorrect or extra commit.
+_Avoid_: score, multiplier (for WPM), streak
+
+**Best Combo**:
+Peak Combo in the current race.
+_Avoid_: high score, max combo (prefer Best Combo)
+
+**Combo PB**:
+The Player's persisted personal-best Combo across races.
+_Avoid_: record, high score
+
+**Chain**:
+Consecutive words committed exactly as prompted.
+_Avoid_: streak, combo (that's characters), word streak
+
+**Streak**:
+Consecutive multi race wins in a room. Shown as 👑.
+_Avoid_: combo, chain, win streak (as a separate product name)
 
 **Tip**:
 A voluntary sats payment to the operator via LNURL-pay / bolt11 (existing). Not a shop purchase.
