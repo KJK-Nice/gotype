@@ -109,13 +109,13 @@ Backend is pluggable (`fileStorage` / `redisStorage`).
 
 ### Player identity
 
-Players can persist progression via **Claim Code** (name + secret) or **LNURL-auth** (wallet scan). SSH access stays open; identity is claimed inside the TUI.
+Players persist progression via **Login** (LNURL-auth wallet scan). SSH access stays open; identity is logged in inside the TUI.
 
 | Flow | Mechanism |
 |------|-----------|
-| Claim Code | Register → one-time code; reclaim with name + code |
-| Wallet login | Scan LNURL QR → wallet signs challenge → display name (new) or auto-login (returning) |
-| Link wallet | Attach linking key to an existing Claim Code Player |
+| Login | Scan LNURL QR with a Lightning wallet → wallet signs challenge → display name (new) or auto-login (returning) |
+
+Suggested wallets: Wallet of Satoshi, Phoenix, Zeus, Breez, Alby, Blink.
 
 HTTP endpoints (when `GOTYPE_PUBLIC_URL` is set): `GET /auth/lnurl` (wallet callback), `GET /auth/lnurl/status` (TUI poll).
 
@@ -193,7 +193,7 @@ Deploy: `railway.toml` → root `Dockerfile` builds `gotype-ssh`. Phoenixd uses 
 
 ## Domain language
 
-Product terms (Player, Claim Code, Buy, Order, Season Pass, etc.) are defined in [CONTEXT.md](./CONTEXT.md). Use that vocabulary in code comments, UI copy, and docs.
+Product terms (Player, Login, Buy, Order, Season Pass, etc.) are defined in [CONTEXT.md](./CONTEXT.md). Use that vocabulary in code comments, UI copy, and docs.
 
 ## Related docs
 

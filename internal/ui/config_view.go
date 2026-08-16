@@ -14,7 +14,7 @@ const (
 	configHintW  = 10
 )
 
-// configKV renders "label  key  value" — label/key in Sub, value in Main (claim-style).
+// configKV renders "label  key  value" — label/key in Sub, value in Main.
 func (m Model) configKV(label, keyHint, value string) string {
 	var b strings.Builder
 	if label != "" {
@@ -160,9 +160,9 @@ func (m Model) viewConfig() string {
 	}
 	b.WriteString("\n")
 	if m.isClaimed() {
-		b.WriteString(m.configKV("player", "c", m.playerName))
+		b.WriteString(m.configKV("player", "l", m.playerName))
 	} else {
-		b.WriteString(m.configKV("player", "c", "guest"))
+		b.WriteString(m.configKV("player", "l", "guest"))
 	}
 
 	if m.multiEnabled() {

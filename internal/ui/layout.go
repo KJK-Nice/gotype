@@ -58,7 +58,7 @@ func (m Model) progMeta() string {
 	if m.isClaimed() {
 		return m.playerName
 	}
-	return "guest · claim to save progress"
+	return "guest · login to save progress"
 }
 
 func (m Model) progTabBar() string {

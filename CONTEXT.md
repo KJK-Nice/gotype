@@ -5,15 +5,19 @@ SSH typing races with optional Lightning tips, and (planned) Player progression 
 ## Language
 
 **Player**:
-A persisted competitor identity with a display name and secret claim code. Owns Inventory, XP, and Season Pass progress.
-_Avoid_: account, user, wallet
+A persisted competitor identity with a display name. Login is LNURL-auth via a Lightning wallet. Owns Inventory, XP, and Season Pass progress.
+_Avoid_: account, user, wallet (for the Player itself)
+
+**Login**:
+LNURL-auth (LUD-04). Scan a QR with a Lightning wallet; a new wallet picks a display name, a returning wallet restores the Player. TUI shortcut: `l`.
+_Avoid_: claim, sign-in, OAuth
 
 **Claim Code**:
-A 12-character Crockford base32 secret (`XXXX-XXXX-XXXX`) that reclaims a Player over SSH; stored only as a password hash.
+Legacy 12-character Crockford base32 secret (`XXXX-XXXX-XXXX`) formerly used to reclaim a Player over SSH. Not offered in the TUI; identity is Linking Key. Stored only as a password hash when present.
 _Avoid_: password, API key, seed
 
 **Linking Key**:
-A domain-specific Lightning wallet public key that identifies a Player for wallet login (LNURL-auth). Optional recovery-friendly alternative to Claim Code.
+A domain-specific Lightning wallet public key that identifies a Player for Login (LNURL-auth).
 _Avoid_: pubkey, seed, password
 
 **Inventory**:

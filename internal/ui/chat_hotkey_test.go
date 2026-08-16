@@ -20,8 +20,8 @@ func TestPodiumChatSDoesNotOpenShop(t *testing.T) {
 	if nm.prog == progShop {
 		t.Fatal("s in chat should not open shop")
 	}
-	if nm.claimMode != claimIdle {
-		t.Fatal("s in chat should not open claim")
+	if nm.loginMode != loginIdle {
+		t.Fatal("s in chat should not open login")
 	}
 	if !nm.chatMode {
 		t.Fatal("should stay in chat")
