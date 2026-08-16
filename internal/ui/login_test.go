@@ -137,6 +137,9 @@ func assertLoginWallets(t *testing.T, out string) {
 	if i, j := strings.Index(out, "Wallet of Satoshi"), strings.Index(out, "Phoenix"); i < 0 || i > j {
 		t.Fatalf("Wallet of Satoshi should be listed first, got %q", out)
 	}
+	if !strings.Contains(strings.ToLower(out), "anonymous") {
+		t.Fatalf("want anonymous called out for Wallet of Satoshi, got %q", out)
+	}
 }
 
 func guestWithApp(t *testing.T) Model {
