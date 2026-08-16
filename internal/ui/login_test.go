@@ -26,11 +26,7 @@ func TestConfigLOpensLoginNotClaimCode(t *testing.T) {
 			t.Fatalf("claim-code path still offered (%q): %q", banned, out)
 		}
 	}
-	for _, w := range []string{"Phoenix", "Zeus", "Breez", "Alby", "Blink"} {
-		if !strings.Contains(out, w) {
-			t.Fatalf("missing wallet %s in %q", w, out)
-		}
-	}
+	assertLoginWallets(t, out)
 }
 
 func TestConfigCDoesNotOpenLogin(t *testing.T) {
@@ -111,11 +107,7 @@ func TestWalletLoginStartsLNURL(t *testing.T) {
 	if strings.Contains(out, "Claim Code") {
 		t.Fatalf("claim code still on wallet screen: %q", out)
 	}
-	for _, w := range []string{"Phoenix", "Zeus", "Breez", "Alby", "Blink"} {
-		if !strings.Contains(out, w) {
-			t.Fatalf("missing wallet %s in %q", w, out)
-		}
-	}
+	assertLoginWallets(t, out)
 }
 
 func TestProgHotkeyOpensLoginWhenGuest(t *testing.T) {
@@ -131,6 +123,19 @@ func TestProgHotkeyOpensLoginWhenGuest(t *testing.T) {
 	out := stripANSI(nm.viewLogin())
 	if strings.Contains(out, "Claim Code") {
 		t.Fatalf("claim-code path from progress hotkey: %q", out)
+	}
+}
+
+func assertLoginWallets(t *testing.T, out string) {
+	t.Helper()
+	want := []string{"Wallet of Satoshi", "Phoenix", "Zeus", "Breez", "Alby", "Blink"}
+	for _, w := range want {
+		if !strings.Contains(out, w) {
+			t.Fatalf("missing wallet %s in %q", w, out)
+		}
+	}
+	if i, j := strings.Index(out, "Wallet of Satoshi"), strings.Index(out, "Phoenix"); i < 0 || i > j {
+		t.Fatalf("Wallet of Satoshi should be listed first, got %q", out)
 	}
 }
 

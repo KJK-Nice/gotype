@@ -115,7 +115,7 @@ Players persist progression via **Login** (LNURL-auth wallet scan). SSH access s
 |------|-----------|
 | Login | Scan LNURL QR with a Lightning wallet → wallet signs challenge → display name (new) or auto-login (returning) |
 
-Suggested wallets: Phoenix, Zeus, Breez, Alby, Blink.
+Suggested wallets: Wallet of Satoshi, Phoenix, Zeus, Breez, Alby, Blink.
 
 HTTP endpoints (when `GOTYPE_PUBLIC_URL` is set): `GET /auth/lnurl` (wallet callback), `GET /auth/lnurl/status` (TUI poll).
 

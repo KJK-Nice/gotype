@@ -22,7 +22,7 @@ const (
 )
 
 // Popular Lightning wallets that speak LNURL-auth (LUD-04).
-const lightningWallets = "Phoenix · Zeus · Breez · Alby · Blink"
+const lightningWallets = "Wallet of Satoshi · Phoenix · Zeus · Breez · Alby · Blink"
 
 func (m *Model) initLoginInputs() {
 	m.loginNameTI = textinput.New()

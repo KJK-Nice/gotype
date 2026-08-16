@@ -104,7 +104,7 @@ Enable **hardcore** (Three-Strike) in lobby — 3 HP, typos hurt, Heart consumab
 
 ## Progression & shop (SSH)
 
-Login with a **Lightning wallet** (LNURL-auth — Phoenix, Zeus, Breez, Alby, or Blink). Earn XP from races, unlock Season Pass tiers, equip cosmetics (themes, carets, FX), buy consumables with sats.
+Login with a **Lightning wallet** (LNURL-auth — Wallet of Satoshi, Phoenix, Zeus, Breez, Alby, or Blink). Earn XP from races, unlock Season Pass tiers, equip cosmetics (themes, carets, FX), buy consumables with sats.
 
 Tips and shop checkout use **Lightning** (BOLT11 QR) when Phoenixd is configured on the server.
 
