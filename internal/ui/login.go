@@ -22,7 +22,7 @@ const (
 )
 
 // Popular Lightning wallets that speak LNURL-auth (LUD-04).
-const lightningWallets = "Wallet of Satoshi (anonymous) · Phoenix · Zeus · Breez · Alby · Blink"
+const lightningWallets = "Wallet of Satoshi · Phoenix · Zeus · Breez · Alby · Blink"
 
 func (m *Model) initLoginInputs() {
 	m.loginNameTI = textinput.New()
@@ -217,7 +217,7 @@ func (m Model) viewLogin() string {
 		body.WriteString(m.sty.Main.Render(lightningWallets))
 		return m.renderScreen(Screen{
 			Title:    "login",
-			Subtitle: "Lightning wallet",
+			Subtitle: "anonymous",
 			Body:     body.String(),
 			Status:   m.loginErr,
 			Keys:     km(bind("esc", "esc", "back")),
@@ -225,7 +225,7 @@ func (m Model) viewLogin() string {
 	case loginWait:
 		return m.renderPayment(PaymentView{
 			Title:    "login",
-			Subtitle: "Lightning wallet",
+			Subtitle: "anonymous",
 			QR:       m.loginWalletQR,
 			Spinner:  m.spin.View(),
 			Status:   "waiting for wallet…",

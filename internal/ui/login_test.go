@@ -137,8 +137,12 @@ func assertLoginWallets(t *testing.T, out string) {
 	if i, j := strings.Index(out, "Wallet of Satoshi"), strings.Index(out, "Phoenix"); i < 0 || i > j {
 		t.Fatalf("Wallet of Satoshi should be listed first, got %q", out)
 	}
-	if !strings.Contains(strings.ToLower(out), "anonymous") {
-		t.Fatalf("want anonymous called out for Wallet of Satoshi, got %q", out)
+	head := strings.SplitN(out, "\n", 2)[0]
+	if !strings.Contains(head, "anonymous") {
+		t.Fatalf("want anonymous in login headline, got %q", head)
+	}
+	if strings.Contains(out, "Wallet of Satoshi (anonymous)") {
+		t.Fatalf("anonymous belongs in the headline, not the wallet name: %q", out)
 	}
 }
 
