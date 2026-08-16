@@ -12,6 +12,7 @@ type Player struct {
 	RenameUsed      bool      `json:"rename_used"`
 	ActiveSessionID string    `json:"active_session_id"`
 	CreatedAt       time.Time `json:"created_at"`
+	BestCombo       int       `json:"best_combo,omitempty"`
 }
 
 // InventoryItem is Player + SKU + qty/owned.
@@ -30,10 +31,10 @@ type Equipment struct {
 
 // Season is a progression window.
 type Season struct {
-	ID        int       `json:"id"`
-	StartsAt  time.Time `json:"starts_at"`
-	EndsAt    time.Time `json:"ends_at"`
-	TrackRef  string    `json:"track_ref"`
+	ID       int       `json:"id"`
+	StartsAt time.Time `json:"starts_at"`
+	EndsAt   time.Time `json:"ends_at"`
+	TrackRef string    `json:"track_ref"`
 }
 
 // SeasonProgress is XP + premium + claimed tiers for one Player/Season.

@@ -114,4 +114,69 @@ func TestMistypeSurvivesCorrection(t *testing.T) {
 	if snap.Accuracy < 49 || snap.Accuracy > 51 {
 		t.Fatalf("Accuracy = %.1f, want ~50", snap.Accuracy)
 	}
+	if snap.Combo != 1 {
+		t.Fatalf("combo after recover = %d, want 1", snap.Combo)
+	}
+	if snap.BestCombo != 1 {
+		t.Fatalf("best combo after recover = %d, want 1", snap.BestCombo)
+	}
+}
+
+func TestComboAndChainOnPerfectWords(t *testing.T) {
+	s := NewSession(Config{Mode: ModeWords, WordCount: 3})
+	now := time.Now()
+	for wi := 0; wi < 2; wi++ {
+		for _, r := range []rune(s.Words[wi]) {
+			s.HandleRune(r, now)
+		}
+		s.HandleSpace(now)
+	}
+	snap := s.Snapshot(now)
+	wantCombo := len([]rune(s.Words[0])) + len([]rune(s.Words[1]))
+	if snap.Combo != wantCombo {
+		t.Fatalf("combo=%d want %d", snap.Combo, wantCombo)
+	}
+	if snap.Chain != 2 || snap.BestChain != 2 {
+		t.Fatalf("chain=%d best=%d want 2", snap.Chain, snap.BestChain)
+	}
+}
+
+func TestChainBreaksOnEarlySpace(t *testing.T) {
+	s := NewSession(Config{Mode: ModeWords, WordCount: 5})
+	now := time.Now()
+	word := []rune(s.Words[0])
+	for _, r := range word {
+		s.HandleRune(r, now)
+	}
+	s.HandleSpace(now)
+	s.HandleSpace(now) // skip next word
+	snap := s.Snapshot(now)
+	if snap.Chain != 0 {
+		t.Fatalf("chain after skip = %d", snap.Chain)
+	}
+	if snap.BestChain != 1 {
+		t.Fatalf("best chain = %d want 1", snap.BestChain)
+	}
+	if snap.Combo != 0 {
+		t.Fatalf("combo should reset on missed letters, got %d", snap.Combo)
+	}
+}
+
+func TestMistypeResetsCombo(t *testing.T) {
+	s := NewSession(Config{Mode: ModeWords, WordCount: 5})
+	now := time.Now()
+	word := []rune(s.Words[0])
+	s.HandleRune(word[0], now)
+	wrong := rune('x')
+	if word[1] == wrong {
+		wrong = 'z'
+	}
+	s.HandleRune(wrong, now)
+	snap := s.Snapshot(now)
+	if snap.Combo != 0 {
+		t.Fatalf("combo after mistype = %d", snap.Combo)
+	}
+	if snap.BestCombo != 1 {
+		t.Fatalf("best combo = %d want 1", snap.BestCombo)
+	}
 }

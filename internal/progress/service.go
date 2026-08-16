@@ -28,24 +28,27 @@ func NewService(store *persist.Store) *Service {
 
 // GrantResult is the outcome of a race XP grant.
 type GrantResult struct {
-	Granted   int
-	DayXP     int
-	SeasonXP  int
-	Tier      int
-	SeasonID  int
-	Skipped   string // reason when 0 granted beyond cap/incomplete
+	Granted    int
+	DayXP      int
+	SeasonXP   int
+	Tier       int
+	SeasonID   int
+	Skipped    string // reason when 0 granted beyond cap/incomplete
+	BonusXP    int
+	ComboPB    int
+	ComboPBNew bool
 }
 
 // GrantFinish awards Season XP for a completed race (idempotent caller-side).
-func (s *Service) GrantFinish(playerID string, kind FinishKind, now time.Time) (GrantResult, error) {
-	var want int
-	switch kind {
-	case FinishSolo:
-		want = SoloFinishXP
-	case FinishMulti:
-		want = MultiFinishXP
-	default:
-		return GrantResult{Skipped: "incomplete"}, nil
+func (s *Service) GrantFinish(playerID string, kind FinishKind, bestCombo int, now time.Time) (GrantResult, error) {
+	pb, pbNew, err := s.Store.RecordBestCombo(playerID, bestCombo)
+	if err != nil {
+		return GrantResult{}, err
+	}
+	want := FinishXP(kind, bestCombo)
+	bonus := ComboBonusXP(bestCombo)
+	if want == 0 {
+		return GrantResult{Skipped: "incomplete", BonusXP: bonus, ComboPB: pb, ComboPBNew: pbNew}, nil
 	}
 	se, err := s.Store.CurrentSeason(now)
 	if err != nil {
@@ -70,12 +73,15 @@ func (s *Service) GrantFinish(playerID string, kind FinishKind, now time.Time) (
 			skip = "incomplete"
 		}
 		return GrantResult{
-			Granted:  0,
-			DayXP:    newDay,
-			SeasonXP: prog.XP,
-			Tier:     TierFromXP(prog.XP),
-			SeasonID: se.ID,
-			Skipped:  skip,
+			Granted:    0,
+			DayXP:      newDay,
+			SeasonXP:   prog.XP,
+			Tier:       TierFromXP(prog.XP),
+			SeasonID:   se.ID,
+			Skipped:    skip,
+			BonusXP:    bonus,
+			ComboPB:    pb,
+			ComboPBNew: pbNew,
 		}, nil
 	}
 	prog.XP += granted
@@ -89,12 +95,24 @@ func (s *Service) GrantFinish(playerID string, kind FinishKind, now time.Time) (
 		return GrantResult{}, err
 	}
 	return GrantResult{
-		Granted:  granted,
-		DayXP:    newDay,
-		SeasonXP: prog.XP,
-		Tier:     TierFromXP(prog.XP),
-		SeasonID: se.ID,
+		Granted:    granted,
+		DayXP:      newDay,
+		SeasonXP:   prog.XP,
+		Tier:       TierFromXP(prog.XP),
+		SeasonID:   se.ID,
+		BonusXP:    bonus,
+		ComboPB:    pb,
+		ComboPBNew: pbNew,
 	}, nil
+}
+
+// NoteBestCombo updates Combo PB without granting XP (DNF).
+func (s *Service) NoteBestCombo(playerID string, bestCombo int) (GrantResult, error) {
+	pb, pbNew, err := s.Store.RecordBestCombo(playerID, bestCombo)
+	if err != nil {
+		return GrantResult{}, err
+	}
+	return GrantResult{ComboPB: pb, ComboPBNew: pbNew, Skipped: "dnf"}, nil
 }
 
 func (s *Service) claimUnlockedRewards(playerID string, prog *persist.SeasonProgress) error {
@@ -218,5 +236,13 @@ func FormatGrantLine(g GrantResult) string {
 		}
 		return ""
 	}
-	return fmt.Sprintf("+%d xp · day %d/%d · tier %d", g.Granted, g.DayXP, DailyXPCap, g.Tier)
+	line := fmt.Sprintf("+%d xp", g.Granted)
+	if g.BonusXP > 0 {
+		line += fmt.Sprintf(" · combo +%d", g.BonusXP)
+	}
+	if g.ComboPBNew {
+		line += fmt.Sprintf(" · pb %d", g.ComboPB)
+	}
+	line += fmt.Sprintf(" · day %d/%d · tier %d", g.DayXP, DailyXPCap, g.Tier)
+	return line
 }

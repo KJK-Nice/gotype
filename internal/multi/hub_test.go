@@ -274,3 +274,33 @@ func TestNormalizeChat(t *testing.T) {
 	}
 }
 
+func TestReportComboOnProgress(t *testing.T) {
+	h := NewHub()
+	cfg := game.Config{Mode: game.ModeTime, Duration: 10 * time.Second}
+	a, b := NewPlayerID(), NewPlayerID()
+	va, _ := h.Create(a, "alice", cfg)
+	_, _ = h.Join(b, "bob", va.Code)
+	now := time.Now()
+	_, _ = h.Start(a, now)
+	_ = h.Snapshot(a, now.Add(4*time.Second))
+	h.Report(a, Progress{WPM: 80, Correct: 40, Chars: 40, Done: true, Combo: 40, BestCombo: 40, Chain: 8}, now.Add(5*time.Second))
+	v := h.Report(b, Progress{WPM: 60, Correct: 30, Chars: 30, Done: true, Combo: 12, BestCombo: 20, Chain: 3}, now.Add(5*time.Second))
+	if v.Phase != PhaseDone {
+		t.Fatalf("phase=%v", v.Phase)
+	}
+	var alice, bob PlayerView
+	for _, p := range v.Players {
+		switch p.Name {
+		case "alice":
+			alice = p
+		case "bob":
+			bob = p
+		}
+	}
+	if alice.Prog.BestCombo != 40 || alice.Prog.Chain != 8 {
+		t.Fatalf("alice combo %+v", alice.Prog)
+	}
+	if bob.Prog.BestCombo != 20 || bob.Prog.Combo != 12 {
+		t.Fatalf("bob combo %+v", bob.Prog)
+	}
+}

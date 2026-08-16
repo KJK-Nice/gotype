@@ -157,3 +157,31 @@ func TestApplyRewardClaimsIdempotent(t *testing.T) {
 	}
 	runApplyRewardClaimsIdempotent(t, s)
 }
+
+func TestRecordBestCombo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.json")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)
+	if err := s.CreatePlayer(Player{ID: "p1", Name: "Neo", NameKey: "neo", ClaimHash: "x", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	pb, improved, err := s.RecordBestCombo("p1", 40)
+	if err != nil || !improved || pb != 40 {
+		t.Fatalf("first pb=%d improved=%v err=%v", pb, improved, err)
+	}
+	pb, improved, err = s.RecordBestCombo("p1", 12)
+	if err != nil || improved || pb != 40 {
+		t.Fatalf("lower combo pb=%d improved=%v err=%v", pb, improved, err)
+	}
+	pb, improved, err = s.RecordBestCombo("p1", 41)
+	if err != nil || !improved || pb != 41 {
+		t.Fatalf("new pb=%d improved=%v err=%v", pb, improved, err)
+	}
+	got, err := s.GetPlayer("p1")
+	if err != nil || got.BestCombo != 41 {
+		t.Fatalf("stored %+v err=%v", got, err)
+	}
+}

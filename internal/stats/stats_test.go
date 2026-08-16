@@ -67,3 +67,72 @@ func TestEmptyFinishedAccuracy(t *testing.T) {
 		t.Fatalf("empty finished Accuracy = %v, want 0", snap.Accuracy)
 	}
 }
+
+func TestComboBuildsAndBreaks(t *testing.T) {
+	c := Calculator{}
+	now := time.Unix(0, 0)
+	for i := 0; i < 12; i++ {
+		c.Record(StrokeCorrect, now)
+	}
+	if c.Combo != 12 || c.BestCombo != 12 {
+		t.Fatalf("combo=%d best=%d", c.Combo, c.BestCombo)
+	}
+	c.Record(StrokeIncorrect, now)
+	if c.Combo != 0 {
+		t.Fatalf("combo after miss = %d", c.Combo)
+	}
+	if c.BestCombo != 12 {
+		t.Fatalf("best combo should stick, got %d", c.BestCombo)
+	}
+	c.Record(StrokeCorrect, now)
+	c.Record(StrokeExtra, now)
+	if c.Combo != 0 {
+		t.Fatalf("combo after extra = %d", c.Combo)
+	}
+}
+
+func TestComboUnrecordDecrements(t *testing.T) {
+	c := Calculator{}
+	now := time.Unix(0, 0)
+	c.Record(StrokeCorrect, now)
+	c.Record(StrokeCorrect, now)
+	if !c.Unrecord(StrokeCorrect) {
+		t.Fatal("unrecord")
+	}
+	if c.Combo != 1 {
+		t.Fatalf("combo after backspace = %d", c.Combo)
+	}
+	c.Record(StrokeIncorrect, now)
+	c.Unrecord(StrokeCorrect)
+	if c.Combo != 0 {
+		t.Fatalf("unrecord after miss should not revive combo, got %d", c.Combo)
+	}
+}
+
+func TestRecordWordChain(t *testing.T) {
+	c := Calculator{}
+	c.RecordWord(true)
+	c.RecordWord(true)
+	if c.Chain != 2 || c.BestChain != 2 {
+		t.Fatalf("chain=%d best=%d", c.Chain, c.BestChain)
+	}
+	c.RecordWord(false)
+	if c.Chain != 0 {
+		t.Fatalf("chain after miss = %d", c.Chain)
+	}
+	if c.BestChain != 2 {
+		t.Fatalf("best chain should stick, got %d", c.BestChain)
+	}
+}
+
+func TestSnapshotIncludesCombo(t *testing.T) {
+	c := Calculator{}
+	now := time.Unix(0, 0)
+	c.Start(now)
+	c.Record(StrokeCorrect, now)
+	c.RecordWord(true)
+	snap := c.Snapshot(now.Add(time.Second))
+	if snap.Combo != 1 || snap.BestCombo != 1 || snap.Chain != 1 || snap.BestChain != 1 {
+		t.Fatalf("snap combo/chain %+v", snap)
+	}
+}

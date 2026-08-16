@@ -2,6 +2,7 @@ package progress
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func TestGrantFinishAndMatrixUnlock(t *testing.T) {
 	total := 0
 	day := now
 	for total < 1000 {
-		g, err := svc.GrantFinish(pid, FinishSolo, day)
+		g, err := svc.GrantFinish(pid, FinishSolo, 0, day)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -96,5 +97,70 @@ func TestClaimUnlockedRewardsIdempotent(t *testing.T) {
 	}
 	if store.InventoryQty(reg.Player.ID, catalog.SKUMatrix) != 1 {
 		t.Fatalf("qty=%d want 1 after retry", store.InventoryQty(reg.Player.ID, catalog.SKUMatrix))
+	}
+}
+
+func TestGrantFinishComboBonusAndPB(t *testing.T) {
+	dir := t.TempDir()
+	store, err := persist.Open(filepath.Join(dir, "gotype.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := player.NewService(store)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	reg, err := ps.Register("Racer3", "10.0.0.3", "s1", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(store)
+	g, err := svc.GrantFinish(reg.Player.ID, FinishSolo, 47, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.BonusXP != 4 {
+		t.Fatalf("bonus=%d want 4", g.BonusXP)
+	}
+	if g.Granted != SoloFinishXP+4 {
+		t.Fatalf("granted=%d", g.Granted)
+	}
+	if !g.ComboPBNew || g.ComboPB != 47 {
+		t.Fatalf("pb new=%v pb=%d", g.ComboPBNew, g.ComboPB)
+	}
+	line := FormatGrantLine(g)
+	if !strings.Contains(line, "combo +4") || !strings.Contains(line, "pb 47") {
+		t.Fatalf("grant line %q", line)
+	}
+	g2, err := svc.GrantFinish(reg.Player.ID, FinishSolo, 20, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g2.ComboPBNew || g2.ComboPB != 47 {
+		t.Fatalf("second race pb new=%v pb=%d", g2.ComboPBNew, g2.ComboPB)
+	}
+}
+
+func TestNoteBestComboDNF(t *testing.T) {
+	dir := t.TempDir()
+	store, err := persist.Open(filepath.Join(dir, "gotype.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := player.NewService(store)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	reg, err := ps.Register("Racer4", "10.0.0.4", "s1", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(store)
+	g, err := svc.NoteBestCombo(reg.Player.ID, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !g.ComboPBNew || g.ComboPB != 30 {
+		t.Fatalf("dnf pb %+v", g)
+	}
+	p, err := store.GetPlayer(reg.Player.ID)
+	if err != nil || p.BestCombo != 30 {
+		t.Fatalf("stored pb=%d err=%v", p.BestCombo, err)
 	}
 }

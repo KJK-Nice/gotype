@@ -155,6 +155,8 @@ type Model struct {
 	buyQR         string
 	buyErr        string
 	lastXPLine    string
+	lastComboPB   int
+	comboPBNew    bool
 	multiXPRace   int
 
 	// consumables (in-race)
@@ -957,6 +959,16 @@ func (m Model) viewTyping() string {
 		hud += m.sty.Sub.Render(" wpm")
 		hud += "  " + m.sty.StatValue.Render(fmt.Sprintf("%.0f%%", snap.Accuracy))
 		hud += m.sty.Sub.Render(" acc")
+		if h := comboHUD(snap.Combo); h != "" {
+			sty := m.sty.StatValue
+			if comboHUDFire(snap.Combo) || comboHUDHot(snap.Combo) {
+				sty = m.sty.Main
+			}
+			hud += "  " + sty.Render(h)
+		}
+		if h := chainHUD(snap.Chain); h != "" {
+			hud += "  " + m.sty.Sub.Render(h)
+		}
 		if m.stopwatch.Running() {
 			hud += "  " + m.sty.Sub.Render(m.stopwatch.View())
 		}
@@ -1178,6 +1190,15 @@ func (m Model) viewResult() string {
 	row("time", fmt.Sprintf("%.1fs", snap.Elapsed.Seconds()))
 	row("correct", fmt.Sprintf("%d", snap.Correct))
 	row("wrong", fmt.Sprintf("%d", snap.Incorrect+snap.Extra))
+	comboVal := fmt.Sprintf("%d", snap.BestCombo)
+	switch {
+	case m.comboPBNew && m.lastComboPB > 0:
+		comboVal += " · pb"
+	case m.lastComboPB > 0:
+		comboVal += fmt.Sprintf(" · pb %d", m.lastComboPB)
+	}
+	row("combo", comboVal)
+	row("chain", fmt.Sprintf("%d", snap.BestChain))
 
 	mode := m.cfg.Mode.String()
 	detail := configDetail(m.cfg, m.sess)

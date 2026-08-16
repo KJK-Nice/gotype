@@ -67,3 +67,27 @@ func TestIncompleteGrantsZero(t *testing.T) {
 		t.Fatalf("incomplete grant = %d err=%v", got, err)
 	}
 }
+
+func TestComboBonusXP(t *testing.T) {
+	if ComboBonusXP(9) != 0 {
+		t.Fatal("no bonus under 10")
+	}
+	if ComboBonusXP(10) != 1 {
+		t.Fatal("10 combo → +1")
+	}
+	if ComboBonusXP(99) != 9 {
+		t.Fatal("99 combo → +9")
+	}
+	if ComboBonusXP(200) != MaxComboBonusXP {
+		t.Fatal("cap at +10")
+	}
+	if FinishXP(FinishSolo, 50) != SoloFinishXP+5 {
+		t.Fatalf("solo 50 combo = %d", FinishXP(FinishSolo, 50))
+	}
+	if FinishXP(FinishMulti, 50) != MultiFinishXP+5 {
+		t.Fatalf("multi 50 combo = %d", FinishXP(FinishMulti, 50))
+	}
+	if FinishXP(FinishNone, 99) != 0 {
+		t.Fatal("incomplete stays 0")
+	}
+}

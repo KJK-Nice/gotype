@@ -213,6 +213,7 @@ func newPodiumTable() table.Model {
 		{Title: "name", Width: 10},
 		{Title: "wpm", Width: 5},
 		{Title: "acc", Width: 5},
+		{Title: "combo", Width: 5},
 		{Title: "bo3", Width: 5},
 	}
 	t := table.New(
@@ -228,7 +229,7 @@ func (m *Model) syncPodiumTable() {
 	rows := make([]table.Row, 0, len(v.Players))
 	for _, p := range v.Players {
 		if p.Spectator {
-			rows = append(rows, table.Row{"·", truncateName(p.Name, 9), "—", "watch", ""})
+			rows = append(rows, table.Row{"·", truncateName(p.Name, 9), "—", "watch", "—", ""})
 			continue
 		}
 		acc := fmt.Sprintf("%.0f%%", p.Prog.Accuracy)
@@ -247,6 +248,7 @@ func (m *Model) syncPodiumTable() {
 			name,
 			fmt.Sprintf("%.0f", p.Prog.WPM),
 			acc,
+			fmt.Sprintf("%d", p.Prog.BestCombo),
 			fmt.Sprintf("%d/%d", p.MatchWins, multi.WinsToTakeMatch),
 		})
 	}

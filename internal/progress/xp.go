@@ -6,12 +6,39 @@ import (
 )
 
 const (
-	SoloFinishXP  = 10
-	MultiFinishXP = 25
-	DailyXPCap    = 200
-	XPPerTier     = 100
-	MaxTier       = 20
+	SoloFinishXP    = 10
+	MultiFinishXP   = 25
+	MaxComboBonusXP = 10
+	DailyXPCap      = 200
+	XPPerTier       = 100
+	MaxTier         = 20
 )
+
+// ComboBonusXP is +1 XP per 10 Best Combo, capped at MaxComboBonusXP.
+func ComboBonusXP(bestCombo int) int {
+	if bestCombo < 10 {
+		return 0
+	}
+	b := bestCombo / 10
+	if b > MaxComboBonusXP {
+		return MaxComboBonusXP
+	}
+	return b
+}
+
+// FinishXP is the uncapped race award: base plus Combo bonus.
+func FinishXP(kind FinishKind, bestCombo int) int {
+	var base int
+	switch kind {
+	case FinishSolo:
+		base = SoloFinishXP
+	case FinishMulti:
+		base = MultiFinishXP
+	default:
+		return 0
+	}
+	return base + ComboBonusXP(bestCombo)
+}
 
 // ApplyXPGrant returns granted amount (may be soft-capped) and new day total.
 // want is the race award (0 for incomplete/spectate/DNF).
